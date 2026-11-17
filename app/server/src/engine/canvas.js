@@ -12,6 +12,9 @@
  * which is why every text node carries direction + anchor + family.
  */
 
+import { parentLogo, subbrandLockup, socialIcon, backgroundFor, backgroundTone } from './assets.js';
+import { persianText, protectNumericClusters } from './bidi.js';
+
 export const CANVAS = {
   reel: { width: 1080, height: 1920 },
   carousel: { width: 1080, height: 1350 },
@@ -30,29 +33,202 @@ const esc = (s) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
+/* ────────────────────────── real brand assets ────────────────────────── */
+
+/**
+ * An inline SVG asset placed in a box.
+ *
+ * resvg does not fetch external references, so the asset's own SVG body is
+ * nested inside a group that scales its viewBox into the target rectangle. That
+ * keeps the mark perfectly crisp at any size (a reel title card and an 80 px
+ * corner logo use the same file) instead of blurring a raster copy.
+ */
+export function svgAsset(asset, { x, y, width, height = null, opacity = 1, align = 'start', color = null }) {
+  if (!asset?.body) return null;
+  const ratio = asset.ratio || 1;
+  const w = width;
+  const h = height ?? width / ratio;
+  const offsetX = align === 'end' ? x - w : align === 'center' ? x - w / 2 : x;
+
+  /* the asset may carry its own width/height; the transform overrides them */
+  const [vx, vy, vw, vh] = asset.viewBox;
+  const scaleX = w / vw;
+  const scaleY = h / vh;
+
+  return {
+    type: 'svg',
+    x: offsetX,
+    y,
+    w,
+    h,
+    opacity,
+    /* recolour monochrome variants by swapping fills is handled at read time;
+       here we keep the original artwork intact */
+    color,
+    inner: asset.body,
+    transform: `translate(${offsetX} ${y}) scale(${scaleX.toFixed(5)} ${scaleY.toFixed(5)}) translate(${-vx} ${-vy})`,
+  };
+}
+
+/**
+ * Reconcile a caller's theme with the section background that will actually be
+ * painted underneath it.
+ *
+ * Design-system rule: the artwork wins. If the background is light, text goes
+ * navy; if it is dark, text goes white. A caller that asks for `isDark: true` on
+ * a light section gets a corrected theme plus a `themeCorrection` note rather
+ * than a silently invisible cover — the note is what lets the content pipeline
+ * flag a mismatched brief instead of shipping a blank-looking card.
+ */
+const NAVY = '#0A1931';
+
+export function resolveTheme(theme, sectionCode) {
+  const tone = sectionCode ? backgroundTone(sectionCode, 'portrait') : null;
+  if (!tone) return theme;
+
+  const wantText = tone.isDark ? '#F8FAFC' : NAVY;
+  const wantMuted = tone.isDark ? '#A8B6CC' : '#475569';
+
+  const corrected = {
+    ...theme,
+    isDark: tone.isDark,
+    bg: tone.bg ?? theme.bg,
+    text: wantText,
+    textMuted: wantMuted,
+    /* Headlines get their own token so a light cover can use navy while a
+       muted secondary stays grey rather than washing out. */
+    heading: tone.isDark ? '#FFFFFF' : NAVY,
+  };
+  if (theme.isDark !== tone.isDark) {
+    corrected.themeCorrection = `section background ${tone.bg} is ${tone.isDark ? 'dark' : 'light'}; theme isDark was ${theme.isDark}`;
+  }
+  return corrected;
+}
+
+/**
+ * Place the real parent mark. Falls back to the brand wordmark as text when the
+ * identity package is absent, so the renderer still produces something on a
+ * bare checkout — but it says so in the caller's own voice, not with a
+ * look-alike drawing.
+ */
+export function brandMark({ theme, brand, x, y, height = 64, align = 'end', variant = null }) {
+  const wantVariant = variant ?? (theme.isDark ? 'white' : 'color');
+  const logo = parentLogo({ variant: wantVariant, layout: 'horizontal' });
+  if (logo?.kind === 'svg') {
+    const width = height * (logo.ratio || 4);
+    return [svgAsset(logo, { x, y, width, height, align })];
+  }
+  /* honest fallback: the wordmark as type, never an invented monogram */
+  return [
+    text(brand.brandName, x, y + height * 0.8, {
+      size: height * 0.62,
+      weight: 900,
+      fill: theme.text,
+      anchor: align === 'end' ? 'end' : align === 'center' ? 'middle' : 'start',
+      family: 'Montserrat',
+    }),
+  ];
+}
+
+/** Place the subbrand lockup (AZ mark + subbrand wordmark on one baseline). */
+export function sectionLockup({ theme, sectionCode, x, y, height = 56, align = 'start' }) {
+  const lockup = subbrandLockup(sectionCode, { variant: theme.isDark ? 'white' : 'full' });
+  if (!lockup?.body) return null;
+  const width = height * (lockup.ratio || 3);
+  return svgAsset(lockup, { x, y, width, height, align });
+}
+
+/**
+ * A social-action row: the identity package's own icons, with Persian labels.
+ * This is what makes a CTA banner look like the brand instead of like an app.
+ */
+export function actionRow({ theme, platform, actions, x, y, size = 44, gap = 22, labels = null, color = null }) {
+  const nodes = [];
+  let cursor = x;
+  for (const [i, action] of actions.entries()) {
+    const icon = socialIcon(platform, action, { tone: 'accent' });
+    if (!icon?.body) continue;
+
+    nodes.push(svgAsset(icon, { x: cursor, y, width: size, height: size, opacity: 0.95 }));
+
+    const label = labels?.[i];
+    if (label) {
+      /* Persian label sits immediately after its icon and is measured, not
+         guessed, so the row never overflows its box. */
+      const labelSize = Math.round(size * 0.42);
+      const labelWidth = Math.min(120, estimateTextWidth(label, labelSize, 700));
+      nodes.push(
+        text(label, cursor + size + 14, y + size * 0.68, {
+          size: labelSize,
+          weight: 700,
+          fill: color ?? theme.textMuted,
+          anchor: 'start',
+        })
+      );
+      cursor += size + 14 + labelWidth + gap;
+    } else {
+      cursor += size + gap;
+    }
+  }
+  return { nodes, width: cursor - x - gap };
+}
+
 /** Persian digits, used for metrics and slide counters. */
 export function toFa(value) {
   return String(value ?? '').replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
 }
 
-/** Rough width estimate for mixed Persian/Latin text, used for wrapping. */
+/**
+ * Width estimate for mixed Persian/Latin text, used for wrapping and for sizing
+ * pills and badges.
+ *
+ * Why a table and not a per-character average: Persian is a *connected* script,
+ * so a naive sum over characters over-counts badly ("می" is narrower than m + y
+ * drawn separately) while Latin at bold weights under-counts. The previous
+ * constants under-counted by 35% on a real CTA label, which pushed the text
+ * outside its own pill — visible in every rendered cover.
+ *
+ * These weights are calibrated against Vazirmatn Bold and Montserrat Bold at
+ * cap height, which is what the identity package specifies.
+ */
 export function estimateTextWidth(text, fontSize, weight = 700) {
   const chars = [...String(text)];
-  let units = 0;
+  let em = 0;
   for (const ch of chars) {
-    if (/[\u0600-\u06FF\u200c]/.test(ch)) units += 0.60;
-    else if (/[A-Z0-9]/.test(ch)) units += 0.63;
-    else if (/[a-z]/.test(ch)) units += 0.52;
-    else if (ch === ' ') units += 0.28;
-    else units += 0.45;
+    if (ch === '\u200c') {
+      em += 0.06; // ZWNJ: joins two words, adds almost nothing
+    } else if (/[\u0600-\u06FF]/.test(ch)) {
+      em += 0.66; // connected Arabic-script letter at medium connector width
+    } else if (/[A-Z]/.test(ch)) {
+      em += 0.68;
+    } else if (/[a-z]/.test(ch)) {
+      em += 0.55;
+    } else if (/[0-9]/.test(ch)) {
+      em += 0.6;
+    } else if (ch === ' ') {
+      em += 0.3;
+    } else if (/[.,:;'!|]/.test(ch)) {
+      em += 0.26;
+    } else {
+      em += 0.5;
+    }
   }
-  const weightFactor = weight >= 800 ? 1.045 : weight >= 700 ? 1.015 : 1;
-  return units * fontSize * weightFactor;
+  /* bold faces are wider, and Persian bold is notably wider than Persian regular */
+  const weightFactor = weight >= 900 ? 1.1 : weight >= 800 ? 1.06 : weight >= 700 ? 1.03 : 1;
+  return em * fontSize * weightFactor;
+}
+
+/** True when the estimate is trustworthy enough to size a container from. */
+export function fitsIn(text, fontSize, maxWidth, weight = 700) {
+  return estimateTextWidth(text, fontSize, weight) <= maxWidth;
 }
 
 /** Greedy word wrap driven by `estimateTextWidth`. Returns at most maxLines. */
 export function wrapText(text, { maxWidth, fontSize, weight = 700, maxLines = 4 }) {
-  const words = String(text ?? '').trim().split(/\s+/).filter(Boolean);
+  /* Protect "۳۰٪", "۱۲.۵٪", "۳×" and friends from being split across a line
+     break. The NBSP is a normal-width space, so nothing moves visually — it
+     only removes the break opportunity. */
+  const words = protectNumericClusters(String(text ?? '')).trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const lines = [];
   let current = '';
@@ -85,9 +261,14 @@ export const polygon = (points, fill, extra = {}) => ({ type: 'polygon', points,
 export const polyline = (points, stroke, extra = {}) => ({ type: 'polyline', points, stroke, ...extra });
 
 export function text(content, x, y, opts = {}) {
+  /* Every visible string funnels through here, so this is where the Persian
+     treatment belongs: normalisation (digits, ZWNJ) plus the percent-sign rule
+     that keeps a standalone `۳۰٪` from drawing its sign on the right.
+     See engine/bidi.js for the measurements behind it. */
+  const content_ = persianText(String(content ?? ''));
   return {
     type: 'text',
-    content: String(content ?? ''),
+    content: content_,
     x,
     y,
     size: opts.size ?? 32,
@@ -99,7 +280,7 @@ export function text(content, x, y, opts = {}) {
     lineHeight: opts.lineHeight ?? 1.55,
     letterSpacing: opts.letterSpacing ?? 0,
     ...opts,
-    content: String(content ?? ''),
+    content: content_,
     x,
     y,
   };
@@ -224,39 +405,50 @@ const GRID_OVERLAY = (theme, w, h) => {
 function header(theme, brand, sectionCode, width, safe) {
   const nodes = [];
   nodes.push(rect(0, 0, width, 8, theme.accent));
-  nodes.push(
-    text(brand.brandName, width - safe.side, 74, {
-      size: 30,
-      weight: 900,
-      fill: theme.text,
-      anchor: 'end',
-    })
-  );
-  const tag = theme.subbrandName;
-  const b = badge(tag, {
-    x: safe.side + 22,
-    y: 46,
-    size: 20,
-    fill: theme.accent,
-    color: theme.onAccent,
-    height: 40,
-    anchor: 'start',
-  });
-  nodes.push(...b.nodes);
+
+  /* Right edge: the real AZ monogram + wordmark from the identity package.
+     Falls back to the wordmark as type only if the package is missing. */
+  nodes.push(...brandMark({ theme, brand, x: width - safe.side, y: 52, height: 58 }));
+
+  /* Left edge: the subbrand lockup, which is what actually tells a viewer they
+     are looking at Library rather than AI. */
+  const lockup = sectionLockup({ theme, sectionCode, x: safe.side, y: 54, height: 52, align: 'start' });
+  if (lockup) {
+    nodes.push(lockup);
+  } else {
+    const b = badge(theme.subbrandName, {
+      x: safe.side + 22,
+      y: 52,
+      size: 20,
+      fill: theme.accent,
+      color: theme.onAccent,
+      height: 40,
+      anchor: 'start',
+    });
+    nodes.push(...b.nodes);
+  }
   return nodes;
 }
 
 function footer(theme, brand, width, height, safe, url = true) {
   const nodes = [];
   if (url) {
-    nodes.push(
-      text(brand.domain, safe.side, height - 46, {
-        size: 24,
-        weight: 800,
-        fill: theme.textMuted,
-        anchor: 'start',
-      })
-    );
+    /* the wordmark footer uses the real wordmark file when present: it carries
+       the gold dot and the AtoZ/latin lockup the text version cannot */
+    const wordmark = parentLogo({ variant: theme.isDark ? 'white' : 'color', layout: 'wordmark' });
+    if (wordmark?.body) {
+      const h = 30;
+      nodes.push(svgAsset(wordmark, { x: safe.side, y: height - 74, width: h * (wordmark.ratio || 5), height: h, align: 'start' }));
+    } else {
+      nodes.push(
+        text(brand.domain, safe.side, height - 46, {
+          size: 24,
+          weight: 800,
+          fill: theme.textMuted,
+          anchor: 'start',
+        })
+      );
+    }
   }
   nodes.push(
     text(brand.handle, width - safe.side, height - 46, {
@@ -591,8 +783,12 @@ export function buildCarouselSlide({ plan, theme, brand, slide, index, total }) 
 }
 
 /** Post cover (1080×1350). */
-export function buildCover({ plan, theme, brand, scene }) {
+export function buildCover({ plan, theme: rawTheme, brand, scene }) {
   const { width, height } = CANVAS.cover;
+  /* The section background decides light vs dark, not the caller. Half the six
+     shipped backgrounds are light, and a white headline over #F8FAFC renders an
+     invisible cover. `resolveTheme` reconciles the two. */
+  const theme = resolveTheme(rawTheme, plan.sectionCode);
   const nodes = [rect(0, 0, width, height, theme.bg)];
   if (theme.isDark) {
     nodes.push(...GRID_OVERLAY(theme, width, height));
@@ -601,6 +797,14 @@ export function buildCover({ plan, theme, brand, scene }) {
     nodes.push(circle(width * 0.95, 20, 340, `${theme.accent}18`));
     nodes.push(circle(-60, height * 0.66, 260, 'rgba(255,180,0,0.18)'));
   }
+  /* The identity package ships a real section background (frame + corner
+     ticks in the subbrand colour). Using it is what makes a cover look like an
+     issued asset rather than a generic gradient. */
+  const bg = backgroundFor(plan.sectionCode, 'portrait');
+  if (bg?.body) {
+    nodes.push(svgAsset(bg, { x: 0, y: 0, width, height }));
+  }
+
   nodes.push(...header(theme, brand, plan.sectionCode, width, { side: 84 }));
 
   const heading = scene?.cardTitle ? `${plan.title}` : plan.title;
@@ -625,10 +829,15 @@ export function buildCover({ plan, theme, brand, scene }) {
   }
 
   if (scene?.metric) {
-    const b = badge(scene.metric, { x: width - 84, y: y + 30, size: 44, fill: theme.gold, color: '#0A0A0C', height: 96, paddingX: 34 });
+    /* Anchor the stat to the lower third instead of letting it float directly
+       under the subtitle. Short headlines used to leave ~300 px of dead space
+       above the CTA, which read as a layout mistake rather than as air. `max`
+       keeps it from ever colliding with a long headline block. */
+    const metricY = Math.max(y + 40, height - 430);
+    const b = badge(scene.metric, { x: width - 84, y: metricY, size: 44, fill: theme.gold, color: '#0A0A0C', height: 96, paddingX: 34 });
     nodes.push(...b.nodes);
     if (scene.metricCaption) {
-      nodes.push(text(scene.metricCaption, width - 84 - b.width - 20, y + 92, { size: 26, weight: 700, fill: theme.textMuted, anchor: 'end' }));
+      nodes.push(text(scene.metricCaption, width - 84 - b.width - 20, metricY + 62, { size: 26, weight: 700, fill: theme.textMuted, anchor: 'end' }));
     }
   }
 
@@ -663,6 +872,27 @@ export function toSvg(nodes, { width, height, background = '#0A1931' }) {
         return `<polyline points="${n.points.map((p) => p.join(',')).join(' ')}" fill="none" stroke="${n.stroke}" stroke-width="${
           n.strokeWidth ?? 3
         }" stroke-linecap="${n.strokeLinecap ?? 'round'}" stroke-linejoin="${n.strokeLinejoin ?? 'round'}"/>`;
+      }
+      if (n.type === 'svg') {
+        /* Nested artwork: strip the inner <svg> wrapper's own width/height so the
+           group transform is the only thing that decides size. resvg resolves
+           neither files nor URLs, so the body must already be inline. */
+        /* Nested <svg> must carry explicit pixel dimensions: resvg ignores
+           percentage sizing inside a transformed group, which silently draws
+           nothing. The intrinsic viewBox size is the correct unit here because
+           the group transform is what does the scaling. */
+        const inner = String(n.inner ?? '')
+          .replace(/<svg\b([^>]*)>/i, (_, attrs) => {
+            const vb = /viewBox\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1]?.trim().split(/[\s,]+/).map(Number);
+            const vw = vb?.[2] ?? 100;
+            const vh = vb?.[3] ?? 100;
+            const kept = attrs
+              .replace(/\s(width|height)\s*=\s*["'][^"']*["']/gi, '')
+              .replace(/\s(x|y)\s*=\s*["'][^"']*["']/gi, '');
+            return `<svg${kept} width="${vw}" height="${vh}">`;
+          })
+          .replace(/<\/svg>\s*$/i, '</svg>');
+        return `<g transform="${n.transform}" opacity="${n.opacity ?? 1}"${n.color ? ` fill="${n.color}"` : ''}>${inner}</g>`;
       }
       if (n.type === 'text') {
         return `<text x="${n.x}" y="${n.y}" font-family="${n.family}" font-size="${n.size}" font-weight="${n.weight}" fill="${n.fill}" text-anchor="${

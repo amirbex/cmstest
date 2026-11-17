@@ -33,12 +33,21 @@ let fontCache = null;
 export function loadFonts() {
   if (fontCache) return fontCache;
   const buffers = [];
-  try {
-    for (const file of fs.readdirSync(FONT_DIR)) {
-      if (/\.(woff2?|otf|ttf)$/i.test(file)) buffers.push(fs.readFileSync(path.join(FONT_DIR, file)));
+
+  /* Two font sources, both required by the identity package:
+       • app/web/public/fonts — the woff2 web subset (Persian UI)
+       • assets/fonts        — the TTF originals for Montserrat + Lato, which
+     the identity tokens specify for latin headings and body. Loading only the
+     web subset silently fell back to a system sans for every latin glyph. */
+  const dirs = [FONT_DIR, process.env.ATOZ_ASSETS_DIR ? path.join(process.env.ATOZ_ASSETS_DIR, 'fonts') : path.resolve('assets/fonts')];
+  for (const dir of dirs) {
+    try {
+      for (const file of fs.readdirSync(dir)) {
+        if (/\.(woff2?|otf|ttf)$/i.test(file)) buffers.push(fs.readFileSync(path.join(dir, file)));
+      }
+    } catch {
+      /* a missing font directory is not fatal: system fonts remain available */
     }
-  } catch {
-    /* fonts optional: fall back to system fonts when available */
   }
   fontCache = {
     fontBuffers: buffers,

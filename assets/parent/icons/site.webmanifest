@@ -1,0 +1,16 @@
+{
+  "name": "AtoZfnb.info",
+  "short_name": "AtoZ.FnB",
+  "lang": "fa",
+  "dir": "rtl",
+  "theme_color": "#0A1931",
+  "background_color": "#0A1931",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "png/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "version": "1.4-parent-motion-approved",
+  "status_note_fa": "دارایی‌های بصری و موشن‌های مادر تأیید شده‌اند؛ نمونه‌های پروفایل و موشن‌های زیربرندها نیازمند بررسی‌اند.",
+  "source_commit": "9135191c51e225cde1ba99edf0ce8975ba3002da",
+  "brand": {
+    "name": "AtoZ.fnb",
+    "official_wordmark": "AtoZfnb.info",
+    "domain": "atozfnb.info",
+    "primary_mark_navy": "#0A1931",
+    "primary_mark_gold": "#FFB400"
+  },
+  "colors": {
+    "navy": "#0A1931",
+    "gold": "#FFB400",
+    "surface": "#F8FAFC",
+    "white": "#FFFFFF",
+    "secondary_text": "#475569",
+    "border": "#D9E0EA"
+  },
+  "subbrands": {
+    "AI": {
+      "signature": "#5D5FEF",
+      "status": "visual-assets-approved-by-owner",
+      "source_role": "AI Prompt Bank",
+      "primary_icon_color": "#5D5FEF"
+    },
+    "Library": {
+      "signature": "#3B5998",
+      "status": "visual-assets-approved-by-owner",
+      "source_role": "Library",
+      "primary_icon_color": "#3B5998"
+    },
+    "Magazine": {
+      "signature": "#C05746",
+      "status": "visual-assets-approved-by-owner",
+      "source_role": "Magazine",
+      "primary_icon_color": "#C05746"
+    },
+    "Calculators": {
+      "signature": "#0F766E",
+      "status": "visual-assets-approved-by-owner",
+      "source_role": "F&B Calculators",
+      "primary_icon_color": "#0F766E"
+    },
+    "Solutions": {
+      "signature": "#D97706",
+      "status": "visual-assets-approved-by-owner",
+      "source_role": "Solutions",
+      "primary_icon_color": "#D97706"
+    },
+    "Academy": {
+      "signature": "#0284C7",
+      "status": "visual-assets-approved-by-owner",
+      "source_role": "Academy",
+      "primary_icon_color": "#0284C7"
+    }
+  },
+  "logo_system": {
+    "symbol_width_reference": 400,
+    "horizontal_gap": 100,
+    "wordmark_gap": 38,
+    "stacked_line_gap_before_scale": 24,
+    "clearspace": "at least the gold dot diameter",
+    "horizontal_modes": [
+      "center-entire-symbol",
+      "baseline-A-to-symbol-A"
+    ],
+    "stacked_alignment": "AtoZ upper edge with AZ letter body top, subbrand first capital baseline with AZ body bottom; descenders may extend below; text block left aligned",
+    "symbol_color_in_color_modes": "fixed navy and gold"
+  },
+  "typography": {
+    "fa_headline": "Vazirmatn ExtraBold/Bold",
+    "fa_body": "Vazirmatn Regular",
+    "latin_headline": "Montserrat Bold/SemiBold",
+    "latin_body": "Lato Regular",
+    "subbrand_wordmark": "Montserrat ExtraBold as outlines",
+    "handwritten_iran_sans": "not present; licensed file needed"
+  },
+  "motion": {
+    "parent_status": "approved-by-owner",
+    "subbrand_status": "prototypes-pending-selection",
+    "fps": 30,
+    "audio": "none",
+    "canvas": "1920x1080",
+    "subbrand_layouts": [
+      "horizontal",
+      "stacked"
+    ],
+    "do_not_modify_final_mark": true
+  },
+  "contrast_guidance": "Use navy on white for body; identity colors do not automatically qualify as body-text colors. Test each actual pairing and UI context.",
+  "profile_samples": {
+    "status": "proposals-pending-selection",
+    "formats": [
+      "circle",
+      "square",
+      "instagram",
+      "youtube",
+      "webapp",
+      "favicon",
+      "youtube-cover"
+    ]
+  }
+}

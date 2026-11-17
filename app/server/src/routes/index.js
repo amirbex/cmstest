@@ -69,7 +69,10 @@ export function buildApp() {
   app
     .serve('/media/outputs', 'storage/outputs')
     .serve('/media/assets', 'storage/assets')
-    .serve('/media/fonts', 'app/web/public/fonts')
+    /* Single source of truth: the identity package's own font folder. The web
+       build references /media/fonts/*.ttf at runtime, so a duplicate copy under
+       app/web/public/fonts would rot the moment the identity package updates. */
+    .serve('/media/fonts', 'assets/fonts')
     .serve('/media/uploads', process.env.ATOZ_MEDIA_DIR || 'storage/media')
     .serve('/files', 'assets');
 

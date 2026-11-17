@@ -101,8 +101,11 @@ test('donut clamps percentages outside 0..100', () => {
   const low = donut(-20, { cx: 100, cy: 100, r: 60, color: '#000', track: '#eee', theme });
   const high = donut(180, { cx: 100, cy: 100, r: 60, color: '#000', track: '#eee', theme });
   const texts = (r) => r.nodes.filter((n) => n.type === 'text').map((n) => n.content);
-  assert.ok(texts(low).some((t) => t.includes('۰٪')), 'negative percent must clamp to zero');
-  assert.ok(texts(high).some((t) => t.includes('۱۰۰')));
+  /* The percent token is emitted sign-first (`٪۰`) so it draws sign-left, so
+     assert the meaning — clamped digits plus a percent sign — not the order. */
+  const hasPercent = (t, digits) => t.includes('٪') && t.includes(digits);
+  assert.ok(texts(low).some((t) => hasPercent(t, '۰')), 'negative percent must clamp to zero');
+  assert.ok(texts(high).some((t) => hasPercent(t, '۱۰۰')));
 });
 
 test('sparkline emits a polygon and a polyline', () => {
@@ -193,4 +196,99 @@ test('styleToCss produces valid CSS property names only', () => {
   assert.equal(css.opacity, '0.500');
   assert.ok(css.transform.includes('translateX(10.00px)'));
   assert.ok(css.filter.includes('blur(3.00px)'));
+});
+
+/* ─────────────── Persian text: percent sign + theme (regressions) ───────────────
+ * Both of these were invisible bugs that rendered "successfully":
+ *   • a standalone `۳۰٪` drew its sign on the right (wrong base direction);
+ *   • a light section background got white text, i.e. no visible text at all.
+ * Neither throws, so only an assertion catches them.
+ */
+import { persianPercent, normalisePersian, persianText, bidiInfo } from '../app/server/src/engine/bidi.js';
+import { resolveTheme } from '../app/server/src/engine/canvas.js';
+import { backgroundTone } from '../app/server/src/engine/assets.js';
+
+test('standalone percent token is emitted sign-first so it draws sign-left', () => {
+  assert.equal(persianPercent('۳۰٪'), '٪۳۰');
+  assert.equal(persianPercent('۱۲.۵٪'), '٪۱۲.۵');
+  assert.equal(bidiInfo('۳۰٪').reordered, true);
+});
+
+test('a leading sign stays with the number, not the percent sign', () => {
+  assert.equal(persianPercent('+۴۵٪'), '+٪۴۵');
+  assert.equal(persianPercent('−۲۰٪'), '−٪۲۰');
+});
+
+test('Persian running text is never touched by the percent rule', () => {
+  const sentence = 'چگونه ضایعات کافه را ۳۰٪ کم کنیم';
+  assert.equal(persianPercent(sentence), sentence);
+  assert.equal(bidiInfo(sentence).rtl, true);
+});
+
+test('percent rule is idempotent and control-character free', () => {
+  const once = persianPercent('۳۰٪');
+  assert.equal(persianPercent(once), once);
+  assert.ok(!/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/.test(once));
+});
+
+test('Persian letter ranges do not swallow the digits', () => {
+  /* A naive \u0669-\u06FF range matched ۰-۹ and made the whole module a no-op. */
+  assert.equal(bidiInfo('۳۰').rtl, false);
+  assert.equal(bidiInfo('۱۲').rtl, false);
+  assert.equal(bidiInfo('کافه').rtl, true);
+});
+
+test('normalisePersian fixes Arabic letters, digits and ZWNJ', () => {
+  assert.equal(normalisePersian('كتاب'), 'کتاب');            // Arabic kaf + teh-marbuta
+  assert.equal(normalisePersian('٣٠'), '۳۰');                // Arabic-Indic → Persian
+  assert.equal(normalisePersian('30'), '۳۰');                // Latin → Persian
+  assert.equal(normalisePersian('می شود'), 'می‌شود');        // ZWNJ
+});
+
+test('wrapText never splits a number from its percent sign', () => {
+  const lines = wrapText('چگونه ضایعات کافه را ۳۰٪ کم کنیم', { maxWidth: 620, fontSize: 72, weight: 900, maxLines: 4 });
+  assert.ok(lines.length > 1, 'should wrap into more than one line');
+  for (const line of lines) {
+    if (line.includes('٪')) assert.ok(/[۰-۹]/u.test(line), `percent orphaned: ${JSON.stringify(line)}`);
+  }
+});
+
+test('section backgrounds report their own tone', () => {
+  assert.equal(backgroundTone('Library').isDark, false);
+  assert.equal(backgroundTone('Academy').isDark, false);
+  assert.equal(backgroundTone('AI').isDark, true);
+  assert.equal(backgroundTone('Calculators').isDark, true);
+});
+
+test('theme follows the background, so text is never invisible', () => {
+  const asked = { isDark: true, bg: '#0A1931', text: '#F8FAFC', textMuted: '#A8B6CC', accent: '#FFB400' };
+  const library = resolveTheme(asked, 'Library');
+  assert.equal(library.isDark, false);
+  assert.equal(library.heading, '#0A1931');
+  assert.match(library.themeCorrection, /light/);
+
+  const ai = resolveTheme(asked, 'AI');
+  assert.equal(ai.isDark, true);
+  assert.equal(ai.themeCorrection, undefined);
+});
+
+test('cover heading ink never matches the background it sits on', () => {
+  for (const sectionCode of ['AI', 'Library', 'Calculators', 'Academy', 'Magazine', 'Solutions']) {
+    const nodes = buildCover({
+      plan: { title: 'چگونه ضایعات کافه را ۳۰٪ کم کنیم', sectionCode },
+      theme: { isDark: true, bg: '#0A1931', text: '#F8FAFC', textMuted: '#A8B6CC', accent: '#FFB400', gold: '#FFB400' },
+      brand,
+      scene: {},
+    });
+    const tone = backgroundTone(sectionCode);
+    const headings = nodes.filter((n) => n.type === 'text' && n.size >= 60);
+    assert.ok(headings.length > 0, `${sectionCode}: no headline rendered`);
+    for (const h of headings) {
+      assert.notEqual(
+        h.content === '' ? null : (h.fill ?? '').toUpperCase(),
+        (tone.bg ?? '').toUpperCase(),
+        `${sectionCode}: headline colour equals background`,
+      );
+    }
+  }
 });

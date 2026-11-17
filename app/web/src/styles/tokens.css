@@ -35,6 +35,38 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/media/fonts/Montserrat-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/media/fonts/Montserrat-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/media/fonts/Montserrat-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Lato';
+  src: url('/media/fonts/Lato-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Latin display face for the identity wordmark and numbers: the tokens file
+   specifies Montserrat for latin headings and Lato for latin body. */
+:root {
+  --font-latin-heading: 'Montserrat', Arial, sans-serif;
+  --font-latin-body: 'Lato', Arial, sans-serif;
+}
+
 :root {
   /* brand constants */
   --navy: #0a1931;
