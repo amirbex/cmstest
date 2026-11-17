@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+.pnp.*
+*.tsbuildinfo
+
+# build output
+app/web/dist/
+dist/
+build/
+.vite/
+.cache/
+
+# runtime state — the SQLite database, rendered media and render scratch space
+# are all generated artefacts. `storage/` keeps its directory shape via .gitkeep.
+storage/data/*
+storage/jobs/*
+storage/assets/*
+storage/outputs/*
+!storage/**/.gitkeep
+
+# local binaries / models for optional offline voice engines
+bin/*
+!bin/.gitkeep
+
+# environment & secrets
+.env
+.env.*
+!.env.example
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.log
+logs/
+
+# test & tool scratch
+coverage/
+.tmp/
+tmp/
