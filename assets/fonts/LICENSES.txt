@@ -1,0 +1,13 @@
+Font source and license notes
+==============================
+
+Open Font License families currently used by the AtoZ identity source files:
+- Vazirmatn (Rastikerdar) — SIL Open Font License 1.1 — https://github.com/rastikerdar/vazirmatn
+- Montserrat (Julieta Ulanovsky) — SIL Open Font License 1.1 — https://github.com/JulietaUla/Montserrat
+- Lato (Łukasz Dziedzic) — SIL Open Font License 1.1 — https://www.latofonts.com/
+
+Dongol (Protype Foundry) includes an Open Font License 1.1 declaration in its font metadata. The linked project/license source was not verified during this phase; treat it as an experimental candidate and verify the accompanying license text before redistributing or deploying it.
+
+The other DigiFonts, Shoko/Shokoh, DG Jory, Mj and Massir user-provided files contain All Rights Reserved, workstation-only, or no clearly verifiable open-license metadata. They remain in the supplied `tools/fonts/` directory for reference but are not embedded, outlined into public exports, or duplicated in generated packages unless the owner provides an applicable license or written permission.
+
+Full per-file metadata, glyph coverage, SHA-256 hashes and exact status are maintained in `brand/fonts/font-inventory.json`. This note does not override the original license or prove the owner's right to use a font.

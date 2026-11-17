@@ -1,0 +1,88 @@
+{
+  "version": "2.0.0-draft",
+  "status": "asset_system_for_owner_review",
+  "brand_id": "atoz-fnb",
+  "brand_name": {
+    "latin": "AtoZfnb.info",
+    "persian": "آ تو ز اف‌ان‌بی",
+    "short_persian_mark": "آ تو ز",
+    "domain": "atozfnb.info",
+    "instagram": "@atozfnb.info"
+  },
+  "positioning": {
+    "essence_fa": "از دانش تا سیستم؛ از سیستم تا رشد پایدار در کسب‌وکار F&B",
+    "promise_fa": "رشد کسب‌وکار خود را با هوش مصنوعی سیستم‌سازی کنید",
+    "mission_fa": "توانمندسازی رهبران حال و آیندهٔ صنعت F&B با دانش کاربردی، استراتژی داده‌محور و ابزارهای هوشمند.",
+    "audience_fa": ["بنیان‌گذاران و مالکان کافه و رستوران", "مدیران و سرپرستان عملیات", "متخصصان و رهبران آیندهٔ F&B"],
+    "principles_fa": ["کاربرد پیش از هیجان", "شفافیت دربارهٔ شواهد و فرض‌ها", "سیستم‌سازی انسان‌محور", "رشد واقع‌بینانه و قابل‌آزمون"]
+  },
+  "voice": {
+    "traits_fa": ["متخصص و دلسوز", "آینده‌نگر و سیستم‌محور", "داده‌محور و شفاف", "صریح، نه تحقیرکننده"],
+    "do_fa": ["یک مسئلهٔ مشخص را نام ببرید.", "راهکار را به گام اجرایی تبدیل کنید.", "فرض، نمونهٔ فرضی و دادهٔ تأییدشده را جدا کنید.", "اصطلاح تخصصی را در اولین کاربرد ساده توضیح دهید."],
+    "avoid_fa": ["وعدهٔ سود یا موفقیت تضمینی", "درصد و قانون مالی بی‌منبع", "لحن سرزنش‌گر یا مطلق", "تراکم متن و تزئینات بی‌کارکرد"]
+  },
+  "architecture": {
+    "content_pillars": [
+      {"id":"education-sops","name_fa":"آموزش و استانداردسازی عملیاتی","purpose_fa":"تبدیل دانش روزمره به روش و چک‌لیست روشن.","destination":"Library","color_token":"library"},
+      {"id":"leadership","name_fa":"رهبری، ذهنیت و رشد مالک","purpose_fa":"کمک به گذار از اجرای فردی به رهبری سیستم.","destination":"Solutions / Brand hub","color_token":"leadership"},
+      {"id":"innovation-ai","name_fa":"نوآوری، هوش مصنوعی و اتوماسیون","purpose_fa":"استفادهٔ مسئولانه از فناوری برای ساخت پیش‌نویس، فهم و بهبود کار.","destination":"AI Prompt Bank","color_token":"ai_prompts"},
+      {"id":"finance-market","name_fa":"اقتصاد F&B و تحلیل بازار","purpose_fa":"ساخت سواد مالی و ابزار تصمیم‌گیری متناسب با دادهٔ واقعی.","destination":"Calculators","color_token":"calculators"},
+      {"id":"case-studies","name_fa":"مطالعات موردی و کالبدشکافی","purpose_fa":"خواندن انتخاب‌ها و سیستم‌ها با زمینه و منبع روشن.","destination":"Magazine","color_token":"magazine"},
+      {"id":"community-roadmaps","name_fa":"جامعه‌سازی و نقشهٔ راه","purpose_fa":"یادگیری مرحله‌ای و تبادل تجربهٔ محترمانه.","destination":"Academy","color_token":"academy"}
+    ],
+    "site_destinations": [
+      {"id":"home","name":"Home","role_fa":"دروازهٔ برند و مسیریابی؛ مقصد محتوایی مستقل نیست."},
+      {"id":"library","name":"Library","role_fa":"راهنما، SOP، کاربرگ و منابع اجرایی."},
+      {"id":"ai-prompts","name":"AI Prompt Bank","role_fa":"پرامپت‌های قابل‌ویرایش با توضیح ورودی، محدودیت و بازبینی انسانی."},
+      {"id":"calculators","name":"F&B Calculators","role_fa":"ماشین‌حساب‌ها و چارچوب‌های مالی با فرض‌های آشکار."},
+      {"id":"magazine","name":"Magazine","role_fa":"مقاله، تحلیل و مطالعات موردی با منبع روشن."},
+      {"id":"academy","name":"Academy","role_fa":"مسیر یادگیری، آموزش و جامعه."},
+      {"id":"solutions","name":"Solutions","role_fa":"خدمات و چارچوب‌های راهبردی برای تصمیم‌گیری کسب‌وکار."}
+    ],
+    "mapping_note_fa":"خانه به‌علاوهٔ شش مقصد تخصصی؛ هر محتوا می‌تواند بیش از یک مقصد مرتبط داشته باشد، اما یک مسیر اصلی داشته باشد."
+  },
+  "visual_system": {
+    "core_palette": {"navy":"#0A1931","gold":"#FFB400","surface":"#F8FAFC","white":"#FFFFFF","text_secondary":"#475569","border":"#D9E0EA"},
+    "section_palette": {
+      "library":"#3B5998",
+      "magazine":"#C05746",
+      "ai_prompts":"#5D5FEF",
+      "calculators":"#0F766E",
+      "academy":"#0284C7",
+      "solutions":"#D97706",
+      "leadership":"#0A1931"
+    },
+    "usage_rules_fa": ["سرمه‌ای و سفید پایهٔ هویت‌اند؛ طلایی فقط تأکید و نشانهٔ رشد است.", "رنگ ستون در نوار، نشان یا حاشیه استفاده شود؛ برای متن بدنه روی سفید به‌کار نرود.", "در هر کارت یک رنگ موضوعی غالب، حداکثر یک رنگ کمکی و فضای خالی کافی.", "هرگز برای تمایز ستون‌ها فقط به رنگ اتکا نکنید؛ نام و آیکون/برچسب همراه رنگ باشد."],
+    "graphic_motifs_fa": ["مسیر صعودی از A به Z", "نقطهٔ طلایی به‌عنوان لحظهٔ کشف/اقدام", "شبکه و خط‌کش به‌عنوان استعارهٔ سیستم", "نمودار ساده و قابل‌خواندن، بدون دادهٔ تزئینی"],
+    "image_direction_fa":"عکس واقعی و انسانی از محیط F&B با نور طبیعی، جزئیات عملیات و ترکیب‌بندی خلوت؛ از تصاویر کلیشه‌ای دفترکار/استوک، لوگوی رقبا و اینفوگرافیک شلوغ پرهیز شود."
+  },
+  "typography": {
+    "fa_display":"Vazirmatn ExtraBold / Bold",
+    "fa_body":"Vazirmatn Regular",
+    "latin_display":"Montserrat Bold / SemiBold",
+    "latin_body":"Lato Regular",
+    "expressive_candidate":{"family":"Dongol","usage":"نمونهٔ کوتاه ادیتوریال؛ هنوز نیازمند تأیید بصری و مدرک مجوز منبع.","limitations":["فونت فایل U+200C نیم‌فاصله ندارد.","برای متن بدنه، کپشن، لوگوتایپ یا عبارت دارای نیم‌فاصله استفاده نشود."]},
+    "fallbacks":{"fa":"Vazirmatn, Noto Sans Arabic, Tahoma, sans-serif","latin_heading":"Montserrat, Arial, sans-serif","latin_body":"Lato, Arial, sans-serif"},
+    "unverified_fonts_policy_fa":"فونت‌های ارسالی با متادیتای All Rights Reserved یا بدون مجوز روشن حفظ می‌شوند، اما تا ارائهٔ مدرک استفاده/بازتوزیع در خروجی نهایی به کار نمی‌روند.",
+    "iran_sans_handwriting":"not_installed_waiting_for_owner_file_and_license"
+  },
+  "layout_presets": {
+    "presentation":{"width":1920,"height":1080,"safe_margin_pct":6,"grid_columns":12,"gutter_pct":1.25},
+    "feed_portrait":{"width":1080,"height":1350,"safe_margin_pct":7,"grid_columns":6,"gutter_px":24},
+    "feed_square":{"width":1080,"height":1080,"safe_margin_pct":7,"grid_columns":6,"gutter_px":24},
+    "story_reel":{"width":1080,"height":1920,"safe_margin_pct":8,"top_ui_safe_pct":12,"bottom_ui_safe_pct":16,"grid_columns":4,"gutter_px":24},
+    "logo_motion_horizontal":{"width":1920,"height":1080,"fps":30},
+    "logo_motion_vertical":{"width":1080,"height":1920,"fps":30}
+  },
+  "motion_identity": {
+    "metaphor_fa":"نقطهٔ طلایی در مسیر صعودی A تا Z؛ پیشرفت با مکث، تثبیت و حرکت رو به جلو.",
+    "timing":{"micro_feedback_ms":180,"component_ms":320,"logo_reveal_ms":900,"brand_sting_s":4.5},
+    "easing":"cubic-bezier(0.22, 1, 0.36, 1)",
+    "reduced_motion":"نسخهٔ ثابت/فید ساده؛ بدون حرکت پیوسته یا چشمک‌زدن.",
+    "sound":"افکت صوتی فقط در صورت درخواست پکیج و قابل‌حذف؛ این فاز موشن‌های بی‌صدا را تحویل می‌دهد."
+  },
+  "reference_translation_fa": [
+    "از نمونه‌ها: تیتر بسیار واضح، پیام کوتاه، کنتراست و رنگ تأکیدی هدفمند، فضای خالی، شماره/دسته و منبع کوچک.",
+    "در هویت AtoZ، جای رنگ‌های نمونه با سرمه‌ای/طلایی/رنگ‌های شش ستون عوض می‌شود؛ سبک و دارایی دیگر برندها، لوگوها یا عکس‌های دارای حق نشر کپی نمی‌شوند."
+  ]
+}

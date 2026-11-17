@@ -1,0 +1,277 @@
+/* ─────────────────────────────────────────────────────────────
+   AtoZ Content Studio — design tokens
+   One source of truth for colour, type, space, radius and motion.
+   Nothing in the app hard-codes a hex value; themes only remap vars.
+   ───────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/media/fonts/vazirmatn-arabic-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/media/fonts/vazirmatn-arabic-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/media/fonts/vazirmatn-arabic-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/media/fonts/vazirmatn-arabic-800-normal.woff2') format('woff2');
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/media/fonts/vazirmatn-arabic-900-normal.woff2') format('woff2');
+  font-weight: 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/media/fonts/Montserrat-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/media/fonts/Montserrat-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/media/fonts/Montserrat-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Lato';
+  src: url('/media/fonts/Lato-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Latin display face for the identity wordmark and numbers: the tokens file
+   specifies Montserrat for latin headings and Lato for latin body. */
+:root {
+  --font-latin-heading: 'Montserrat', Arial, sans-serif;
+  --font-latin-body: 'Lato', Arial, sans-serif;
+}
+
+:root {
+  /* brand constants */
+  --navy: #0a1931;
+  --navy-2: #101b33;
+  --gold: #ffb400;
+  --orange: #ff5722;
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --danger: #f43f5e;
+  --info: #38bdf8;
+
+  /* type scale (fluid, Persian-optimised line heights) */
+  --font: 'Vazirmatn', system-ui, 'Segoe UI', Tahoma, sans-serif;
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 19px;
+  --fs-2xl: 24px;
+  --fs-3xl: 30px;
+  --fs-4xl: 38px;
+  --lh-tight: 1.45;
+  --lh-body: 1.75;
+
+  /* space */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+
+  /* radius */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-full: 999px;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 360ms;
+
+  /* layout */
+  --sidebar-w: 264px;
+  --topbar-h: 60px;
+  --content-max: 1520px;
+}
+
+/* ── dark (default, brand-native) ── */
+[data-theme='dark'] {
+  --bg: #060d1c;
+  --bg-elevated: #0b1730;
+  --surface: rgba(17, 28, 51, 0.82);
+  --surface-2: rgba(25, 39, 68, 0.72);
+  --surface-3: rgba(33, 50, 84, 0.6);
+  --border: rgba(148, 163, 184, 0.16);
+  --border-strong: rgba(148, 163, 184, 0.3);
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --accent: var(--gold);
+  --accent-contrast: #0a0a0c;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 28px rgba(2, 6, 18, 0.55);
+  --shadow-lg: 0 20px 60px rgba(2, 6, 18, 0.7);
+  --field-bg: rgba(6, 13, 28, 0.85);
+  --field-border: rgba(148, 163, 184, 0.22);
+  --overlay: rgba(3, 7, 18, 0.72);
+  color-scheme: dark;
+}
+
+/* ── light (daylight studio) ── */
+[data-theme='light'] {
+  --bg: #f1f5f9;
+  --bg-elevated: #ffffff;
+  --surface: rgba(255, 255, 255, 0.93);
+  --surface-2: rgba(248, 250, 252, 0.96);
+  --surface-3: rgba(226, 232, 240, 0.72);
+  --border: rgba(15, 23, 42, 0.1);
+  --border-strong: rgba(15, 23, 42, 0.2);
+  --text: #0a1931;
+  --text-muted: #475569;
+  --text-dim: #64748b;
+  --accent: #e0a000;
+  --accent-contrast: #0a0a0c;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow: 0 8px 28px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 20px 60px rgba(15, 23, 42, 0.14);
+  --field-bg: #ffffff;
+  --field-border: rgba(15, 23, 42, 0.16);
+  --overlay: rgba(15, 23, 42, 0.42);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+
+/* Ambient brand wash — subtle, never competes with content */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(900px 600px at 88% -8%, rgba(255, 180, 0, 0.1), transparent 62%),
+    radial-gradient(760px 520px at 6% 104%, rgba(93, 95, 239, 0.1), transparent 60%);
+}
+[data-theme='light'] body::before {
+  background:
+    radial-gradient(900px 600px at 88% -8%, rgba(255, 180, 0, 0.16), transparent 62%),
+    radial-gradient(760px 520px at 6% 104%, rgba(59, 89, 152, 0.09), transparent 60%);
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+  line-height: var(--lh-tight);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* LTR islands inside RTL text: codes, ids, metrics, model names */
+.ltr,
+code,
+kbd,
+pre,
+.num {
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-variant-numeric: tabular-nums;
+}
+
+.num-fa {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgba(255, 180, 0, 0.32);
+  color: inherit;
+}
+
+/* Focus ring — visible for keyboard users only */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--r-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

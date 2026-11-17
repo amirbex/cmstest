@@ -1,0 +1,84 @@
+{
+  "brandName": "AtoZ.FnB",
+  "domain": "atozfnb.info",
+  "handle": "@atozfnb.info",
+  "essence": "از دانش تا سیستم؛ از سیستم تا رشد پایدار در کسب‌وکار F&B",
+  "promise": "رشد کسب‌وکار خود را با هوش مصنوعی سیستم‌سازی کنید",
+  "cta": "دریافت ابزار از atozfnb.info",
+  "colors": {
+    "primaryNavy": "#0A1931",
+    "accentGold": "#FFB400",
+    "industrialOrange": "#FF5722",
+    "obsidianBlack": "#0A0A0C",
+    "studioWhite": "#F8FAFC",
+    "pureWhite": "#FFFFFF",
+    "secondaryText": "#475569",
+    "border": "#D9E0EA"
+  },
+  "typography": {
+    "family": "Vazirmatn",
+    "weights": [400, 600, 700, 800, 900]
+  },
+  "sectionThemes": {
+    "AI": {
+      "id": "AI",
+      "pillarCode": "P3",
+      "subbrandName": "AtoZ AI",
+      "name": "بانک پرامپت AI",
+      "accent": "#5D5FEF",
+      "mode": "dark",
+      "bg": "#0A0A0C",
+      "onAccent": "#FFFFFF"
+    },
+    "Library": {
+      "id": "Library",
+      "pillarCode": "P1",
+      "subbrandName": "AtoZ Library",
+      "name": "کتابخانه و SOP",
+      "accent": "#3B5998",
+      "mode": "light",
+      "bg": "#F8FAFC",
+      "onAccent": "#FFFFFF"
+    },
+    "Magazine": {
+      "id": "Magazine",
+      "pillarCode": "P5",
+      "subbrandName": "AtoZ Magazine",
+      "name": "مجله و مطالعات موردی",
+      "accent": "#C05746",
+      "mode": "light",
+      "bg": "#F8F6F0",
+      "onAccent": "#FFFFFF"
+    },
+    "Calculators": {
+      "id": "Calculators",
+      "pillarCode": "P4",
+      "subbrandName": "AtoZ Calculators",
+      "name": "ماشین‌حساب‌های مالی",
+      "accent": "#0F766E",
+      "mode": "light",
+      "bg": "#F8FAFC",
+      "onAccent": "#FFFFFF"
+    },
+    "Solutions": {
+      "id": "Solutions",
+      "pillarCode": "P2",
+      "subbrandName": "AtoZ Solutions",
+      "name": "راهکارها و مشاوره B2B",
+      "accent": "#D97706",
+      "mode": "dark",
+      "bg": "#0A1931",
+      "onAccent": "#0A0A0C"
+    },
+    "Academy": {
+      "id": "Academy",
+      "pillarCode": "P6",
+      "subbrandName": "AtoZ Academy",
+      "name": "آکادمی و نقشه راه",
+      "accent": "#0284C7",
+      "mode": "light",
+      "bg": "#FFFFFF",
+      "onAccent": "#FFFFFF"
+    }
+  }
+}
