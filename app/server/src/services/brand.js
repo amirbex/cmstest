@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BrandConfig } from '@atoz/contracts';
+import { backgroundTone } from '../engine/assets.js';
 
 const BRAND_FILE = process.env.ATOZ_BRAND_FILE || path.resolve('brand.json');
 
@@ -29,7 +30,18 @@ export function readableOn(hex) {
 export function themeFor(sectionCode = 'Library', forceMode = 'auto') {
   const brand = loadBrand();
   const theme = brand.sectionThemes[sectionCode] ?? brand.sectionThemes.Library;
-  const mode = forceMode === 'auto' ? theme.mode : forceMode;
+
+  /* The artwork is the authority on light vs dark, not brand.json.
+     `backgrounds/<Section>/portrait.svg` is what actually gets painted under
+     every still, and it disagreed with brand.json for two sections
+     (Calculators is navy #071923 but was declared light; Solutions is
+     #F9F7F2 but was declared dark). Reading the tone here means the theme,
+     the artwork and the text colour cannot drift apart again — and a future
+     identity update that recolours a background is picked up for free. */
+  const tone = backgroundTone(sectionCode, 'portrait');
+  const declaredMode = theme.mode;
+  const artworkMode = tone ? (tone.isDark ? 'dark' : 'light') : declaredMode;
+  const mode = forceMode === 'auto' ? artworkMode : forceMode;
   const isDark = mode === 'dark';
   return {
     ...theme,
@@ -42,6 +54,12 @@ export function themeFor(sectionCode = 'Library', forceMode = 'auto') {
     onAccent: readableOn(theme.accent),
     gold: brand.colors.accentGold ?? '#FFB400',
     navy: brand.colors.primaryNavy ?? '#0A1931',
+    /* Set only when brand.json and the shipped artwork disagree, so the content
+       pipeline can surface it instead of shipping an invisible card. */
+    themeCorrection:
+      forceMode === 'auto' && tone && artworkMode !== declaredMode
+        ? `brand.json says ${sectionCode} is ${declaredMode}, but backgrounds/${sectionCode}/portrait.svg is ${tone.bg} (${artworkMode})`
+        : undefined,
   };
 }
 

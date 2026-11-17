@@ -12,7 +12,7 @@
  * which is why every text node carries direction + anchor + family.
  */
 
-import { parentLogo, subbrandLockup, socialIcon, backgroundFor, backgroundTone } from './assets.js';
+import { parentLogo, subbrandLockup, avatarFor, socialIcon, backgroundFor, backgroundTone, patternFor } from './assets.js';
 import { persianText, protectNumericClusters } from './bidi.js';
 
 export const CANVAS = {
@@ -71,6 +71,71 @@ export function svgAsset(asset, { x, y, width, height = null, opacity = 1, align
 }
 
 /**
+ * The section's pattern, as a texture over the background.
+ *
+ * Every shipped pattern file paints its own `#F8FAFC` page fill before the tile
+ * layer. Composed naively that erases a dark section, so the page fill is
+ * dropped here and only the tiled artwork survives. The pattern files use their
+ * own internal `id="tile"`, which would collide with a second pattern on the
+ * same page, so ids are namespaced per section when several patterns can meet
+ * (a carousel renders N slides into one document).
+ *
+ * Patterns are 1920×1080 and get scaled to the target box; at the low opacities
+ * we use them at (0.3–0.55) the softened geometry reads as a texture, not as
+ * stretched line art.
+ */
+export function patternOverlay(sectionCode, { x = 0, y = 0, width, height, opacity = 0.4, name = 'identity-weave' } = {}) {
+  const pattern = patternFor(sectionCode, name);
+  if (!pattern?.body) return null;
+
+  const vb = pattern.viewBox;
+  const body = pattern.body
+    /* Drop the opaque page fill, keep everything drawn on top of it. */
+    .replace(/<rect[^>]*fill="#F8FAFC"[^>]*\/>/gi, '')
+    .replace(/<rect[^>]*fill="#FFFFFF"[^>]*\/>/gi, '')
+    /* Namespace the pattern id so two sections in one document don't collide. */
+    .replace(/id="tile"/g, `id="tile-${sectionCode}-${name}"`)
+    .replace(/url\(#tile\)/g, `url(#tile-${sectionCode}-${name})`);
+
+  const scaleX = width / (vb[2] || width);
+  const scaleY = height / (vb[3] || height);
+  return {
+    type: 'svg',
+    x,
+    y,
+    w: width,
+    h: height,
+    opacity,
+    inner: body,
+    transform: `translate(${x} ${y}) scale(${scaleX.toFixed(5)} ${scaleY.toFixed(5)}) translate(${-vb[0]} ${-vb[1]})`,
+  };
+}
+
+/**
+ * The subbrand's real avatar mark, placed as a disc.
+ *
+ * Used as the cover stamp on carousel slides and the reel outro: the small
+ * circular identity mark is the one element that makes a slide look issued by
+ * the brand rather than assembled by a tool.
+ */
+export function avatarDisc({ sectionCode, x, y, size = 120, align = 'start', ring = null }) {
+  const avatar = avatarFor(sectionCode);
+  const nodes = [];
+  if (!avatar?.body) return nodes;
+
+  /* The avatar file is 512×512 with the mark inset inside rounded corners;
+     placing it at the box size keeps its aspect. The ring is drawn at the same
+     radius as the artwork's own corner box, not the outer size, or it reads as
+     a stray ellipse around the mark. */
+  nodes.push(svgAsset(avatar, { x, y, width: size, height: size, align }));
+  if (ring) {
+    const cx = align === 'end' ? x - size / 2 : align === 'center' ? x : x + size / 2;
+    nodes.push(circle(cx, y + size / 2, size / 2, 'none', { stroke: ring, strokeWidth: 3 }));
+  }
+  return nodes;
+}
+
+/**
  * Reconcile a caller's theme with the section background that will actually be
  * painted underneath it.
  *
@@ -82,8 +147,8 @@ export function svgAsset(asset, { x, y, width, height = null, opacity = 1, align
  */
 const NAVY = '#0A1931';
 
-export function resolveTheme(theme, sectionCode) {
-  const tone = sectionCode ? backgroundTone(sectionCode, 'portrait') : null;
+export function resolveTheme(theme, sectionCode, orientation = 'portrait') {
+  const tone = sectionCode ? backgroundTone(sectionCode, orientation) : null;
   if (!tone) return theme;
 
   const wantText = tone.isDark ? '#F8FAFC' : NAVY;
@@ -111,12 +176,23 @@ export function resolveTheme(theme, sectionCode) {
  * bare checkout — but it says so in the caller's own voice, not with a
  * look-alike drawing.
  */
-export function brandMark({ theme, brand, x, y, height = 64, align = 'end', variant = null }) {
+export function brandMark({ theme, brand, x, y, height = 64, align = 'end', variant = null, scrim = null }) {
   const wantVariant = variant ?? (theme.isDark ? 'white' : 'color');
   const logo = parentLogo({ variant: wantVariant, layout: 'horizontal' });
   if (logo?.kind === 'svg') {
     const width = height * (logo.ratio || 4);
-    return [svgAsset(logo, { x, y, width, height, align })];
+    const nodes = [];
+    /* Optional scrim. The colour variant's "Z" is gold, and the section
+       backgrounds put a large accent-coloured arc in the top-right corner —
+       exactly where the parent mark sits — so gold-on-orange disappears. The
+       contrast guidance says test the actual pairing; this is that test made
+       mechanical. Opt-in, because the outro places the mark on its own plate. */
+    if (scrim) {
+      const left = align === 'end' ? x - width : align === 'center' ? x - width / 2 : x;
+      nodes.push(rect(left - 10, y - 8, width + 20, height + 16, scrim, { rx: 10 }));
+    }
+    nodes.push(svgAsset(logo, { x, y, width, height, align }));
+    return nodes;
   }
   /* honest fallback: the wordmark as type, never an invented monogram */
   return [
@@ -408,7 +484,16 @@ function header(theme, brand, sectionCode, width, safe) {
 
   /* Right edge: the real AZ monogram + wordmark from the identity package.
      Falls back to the wordmark as type only if the package is missing. */
-  nodes.push(...brandMark({ theme, brand, x: width - safe.side, y: 52, height: 58 }));
+  nodes.push(
+    ...brandMark({
+      theme,
+      brand,
+      x: width - safe.side,
+      y: 52,
+      height: 58,
+      scrim: theme.isDark ? 'rgba(10,25,49,0.55)' : 'rgba(248,250,252,0.80)',
+    })
+  );
 
   /* Left edge: the subbrand lockup, which is what actually tells a viewer they
      are looking at Library rather than AI. */
@@ -438,7 +523,13 @@ function footer(theme, brand, width, height, safe, url = true) {
     const wordmark = parentLogo({ variant: theme.isDark ? 'white' : 'color', layout: 'wordmark' });
     if (wordmark?.body) {
       const h = 30;
-      nodes.push(svgAsset(wordmark, { x: safe.side, y: height - 74, width: h * (wordmark.ratio || 5), height: h, align: 'start' }));
+      const wmW = h * (wordmark.ratio || 5);
+      /* Section backgrounds put decorative art in the bottom-left corner — the
+         exact spot the wordmark occupies — so a soft scrim in the page colour
+         keeps it legible without moving the brand block. Straight from the
+         contrast guidance: test each actual pairing, don't assume. */
+      nodes.push(rect(safe.side - 12, height - 84, wmW + 24, h + 20, theme.isDark ? 'rgba(10,25,49,0.62)' : 'rgba(248,250,252,0.80)', { rx: 10 }));
+      nodes.push(svgAsset(wordmark, { x: safe.side, y: height - 74, width: wmW, height: h, align: 'start' }));
     } else {
       nodes.push(
         text(brand.domain, safe.side, height - 46, {
@@ -469,12 +560,15 @@ function footer(theme, brand, width, height, safe, url = true) {
  * remaining space is distributed as gaps so every frame fills 1920 px without
  * ever bleeding under the reels UI.
  */
-export function buildReelScene({ plan, theme, brand, scene, sceneIndex, totalScenes }) {
+export function buildReelScene({ plan, theme: rawTheme, brand, scene, sceneIndex, totalScenes }) {
   const { width, height } = CANVAS.reel;
   const layout = plan.layout ?? {};
   const LEFT = SAFE.side;
   const RIGHT = width - SAFE.side;
   const contentW = RIGHT - LEFT;
+  /* Reels are 1080×1920, so they take the landscape artwork rotated into place
+     rather than the 1080×1350 portrait file, which would letterbox. */
+  const theme = resolveTheme(rawTheme, plan.sectionCode, 'landscape');
   const nodes = [];
 
   nodes.push(rect(0, 0, width, height, theme.bg));
@@ -486,6 +580,16 @@ export function buildReelScene({ plan, theme, brand, scene, sceneIndex, totalSce
     nodes.push(circle(width * 0.98, height * 0.06, 400, `${theme.accent}12`));
     nodes.push(circle(-70, height * 0.6, 300, 'rgba(255,180,0,0.14)'));
   }
+
+  const bg = backgroundFor(plan.sectionCode, 'landscape');
+  if (bg?.body) nodes.push(svgAsset(bg, { x: 0, y: 0, width, height }));
+
+  const pattern = patternOverlay(plan.sectionCode, {
+    width,
+    height,
+    opacity: theme.isDark ? 0.28 : 0.42,
+  });
+  if (pattern) nodes.push(pattern);
 
   nodes.push(...header(theme, brand, plan.sectionCode, width, { side: LEFT }));
 
@@ -679,24 +783,47 @@ function countWidth(value) {
 /** Outro / logo-motion frame (HyperFrames-style end card). */
 export function buildOutro({ theme, brand, plan }) {
   const { width, height } = CANVAS.reel;
+  const sectionCode = plan?.sectionCode;
+  const GOLD = '#FFB400';
+
+  /* The outro is the last frame of the reel and the one people screenshot, so it
+     stays on the brand's darkest surface. An earlier pass layered the section's
+     *light* background over navy at 0.5 opacity, which produced a washed grey
+     plane and pushed the gold promise text under 3:1 contrast. Only the
+     pattern — whose opaque page fill `patternOverlay` already strips — is safe
+     to overlay here. */
   const nodes = [
     rect(0, 0, width, height, '#0A1931'),
-    circle(width / 2, height / 2, 460, 'rgba(255,180,0,0.07)'),
-    circle(width / 2, height / 2, 300, 'rgba(255,180,0,0.09)'),
+    circle(width / 2, height / 2, 470, 'rgba(255,180,0,0.10)'),
+    circle(width / 2, height / 2, 300, 'rgba(255,180,0,0.13)'),
   ];
-  nodes.push(rect(width / 2 - 86, height / 2 - 330, 172, 172, '#FFB400', { rx: 46 }));
-  nodes.push(text('AZ', width / 2, height / 2 - 216, { size: 76, weight: 900, fill: '#0A1931', anchor: 'middle' }));
-  const promiseLines = wrapText(brand.promise, { maxWidth: width - 220, fontSize: 54, weight: 900, maxLines: 3 });
+
+  const pattern = sectionCode ? patternOverlay(sectionCode, { width, height, opacity: 0.22 }) : null;
+  if (pattern) nodes.push(pattern);
+
+  /* The real subbrand lockup, white variant, centred. No gold plate: the plate
+     existed to hold a typed "AZ", and the shipped mark is far wider than it, so
+     the two collided. The identity package's own mark needs no backing. */
+  const lockup = sectionCode ? sectionLockup({ theme: { ...theme, isDark: true }, sectionCode, x: width / 2, y: height / 2 - 400, height: 96, align: 'center' }) : null;
+  if (lockup) {
+    nodes.push(lockup);
+  } else {
+    nodes.push(...brandMark({ theme: { ...theme, isDark: true }, brand, x: width / 2, y: height / 2 - 380, height: 84, align: 'center' }));
+  }
+
+  const promiseLines = wrapText(brand.promise, { maxWidth: width - 240, fontSize: 54, weight: 900, maxLines: 3 });
   promiseLines.forEach((l, i) =>
-    nodes.push(text(l, width / 2, height / 2 - 60 + i * 78, { size: 54, weight: 900, fill: '#FFB400', anchor: 'middle' }))
+    nodes.push(text(l, width / 2, height / 2 - 150 + i * 78, { size: 54, weight: 900, fill: GOLD, anchor: 'middle' }))
   );
-  nodes.push(rect(width / 2 - 210, height / 2 + 150, 420, 78, 'none', { rx: 39, stroke: '#FFB400', strokeWidth: 3 }));
-  nodes.push(text(brand.domain, width / 2, height / 2 + 200, { size: 34, weight: 900, fill: '#FFFFFF', anchor: 'middle' }));
+
+  nodes.push(rect(width / 2 - 230, height / 2 + 170, 460, 80, 'none', { rx: 40, stroke: GOLD, strokeWidth: 3 }));
+  nodes.push(text(brand.domain, width / 2, height / 2 + 222, { size: 34, weight: 900, fill: '#FFFFFF', anchor: 'middle' }));
+
   nodes.push(
-    text(plan?.title ?? brand.brandName, width / 2, height / 2 + 300, {
+    text(plan?.title ?? brand.brandName, width / 2, height / 2 + 330, {
       size: 26,
       weight: 700,
-      fill: 'rgba(248,250,252,0.6)',
+      fill: 'rgba(248,250,252,0.72)',
       anchor: 'middle',
     })
   );
@@ -704,8 +831,10 @@ export function buildOutro({ theme, brand, plan }) {
 }
 
 /** Carousel slide (1080×1350). */
-export function buildCarouselSlide({ plan, theme, brand, slide, index, total }) {
+export function buildCarouselSlide({ plan, theme: rawTheme, brand, slide, index, total }) {
   const { width, height } = CANVAS.carousel;
+  /* Same rule as the cover: the section's own artwork decides light vs dark. */
+  const theme = resolveTheme(rawTheme, plan.sectionCode);
   const nodes = [];
   nodes.push(rect(0, 0, width, height, theme.bg));
   if (theme.isDark) {
@@ -715,11 +844,37 @@ export function buildCarouselSlide({ plan, theme, brand, slide, index, total }) 
     nodes.push(circle(width * 0.96, 40, 300, `${theme.accent}14`));
     nodes.push(circle(-30, height * 0.7, 220, 'rgba(255,180,0,0.16)'));
   }
+
+  /* Layered identity: section background frame, then the section pattern as a
+     texture over it. Together they make a slide look issued rather than drawn. */
+  const bg = backgroundFor(plan.sectionCode, 'portrait');
+  if (bg?.body) nodes.push(svgAsset(bg, { x: 0, y: 0, width, height }));
+
+  const pattern = patternOverlay(plan.sectionCode, {
+    width,
+    height,
+    opacity: theme.isDark ? 0.34 : 0.5,
+  });
+  if (pattern) nodes.push(pattern);
+
   nodes.push(...header(theme, brand, plan.sectionCode, width, { side: 76 }));
 
   const contentW = width - 152;
   const top = 200;
-  nodes.push(text(`${toFa(index + 1)} / ${toFa(total)}`, 76, 78, { size: 28, weight: 900, fill: theme.text, anchor: 'start' }));
+  /* The slide counter used to sit at y=78, directly on top of the subbrand
+     lockup that `header()` places at the same x — the two read as one corrupted
+     logo. It now sits under the lockup as a pagination pill, which is also the
+     clearer affordance for a carousel. */
+  const counterLabel = `${toFa(index + 1)} / ${toFa(total)}`;
+  const counterW = estimateTextWidth(counterLabel, 22, 900) + 36;
+  nodes.push(rect(76, 118, counterW, 38, theme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(10,25,49,0.05)', { rx: 19 }));
+  nodes.push(rect(76 + 0.75, 118.75, counterW - 1.5, 36.5, 'none', { rx: 18, stroke: theme.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(10,25,49,0.14)', strokeWidth: 1.5 }));
+  nodes.push(text(counterLabel, 76 + counterW / 2, 144, { size: 22, weight: 900, fill: theme.isDark ? '#FFFFFF' : theme.navy, anchor: 'middle' }));
+  /* Progress lives on its own rail under the pill: overlaying it on the pill
+     made the accent colour read as a smudge behind the numbers. */
+  const railW = counterW + 60;
+  nodes.push(rect(76, 164, railW, 4, theme.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(10,25,49,0.10)', { rx: 2 }));
+  nodes.push(rect(76, 164, Math.max(4, (railW * (index + 1)) / Math.max(1, total)), 4, theme.accent, { rx: 2 }));
 
   const headingLines = wrapText(slide.heading, { maxWidth: contentW, fontSize: 62, weight: 900, maxLines: 4 });
   headingLines.forEach((line, i) =>
@@ -799,11 +954,18 @@ export function buildCover({ plan, theme: rawTheme, brand, scene }) {
   }
   /* The identity package ships a real section background (frame + corner
      ticks in the subbrand colour). Using it is what makes a cover look like an
-     issued asset rather than a generic gradient. */
+     issued asset rather than a generic gradient. `resolveTheme` already read
+     this file for its tone, so the asset comes back from the same cache. */
   const bg = backgroundFor(plan.sectionCode, 'portrait');
   if (bg?.body) {
     nodes.push(svgAsset(bg, { x: 0, y: 0, width, height }));
   }
+  const coverPattern = patternOverlay(plan.sectionCode, {
+    width,
+    height,
+    opacity: theme.isDark ? 0.3 : 0.44,
+  });
+  if (coverPattern) nodes.push(coverPattern);
 
   nodes.push(...header(theme, brand, plan.sectionCode, width, { side: 84 }));
 
