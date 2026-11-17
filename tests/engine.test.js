@@ -165,7 +165,20 @@ test('outro always contains the brand promise and domain', () => {
   const nodes = buildOutro({ theme, brand, plan });
   const texts = nodes.filter((n) => n.type === 'text').map((n) => n.content);
   assert.ok(texts.some((t) => t.includes('atozfnb.info')));
-  assert.ok(texts.some((t) => t.includes('AZ')));
+  assert.ok(texts.some((t) => t.includes(brand.promise.slice(0, 12))), 'promise must be on the outro');
+});
+
+test('outro carries the real identity mark, not typed letters', () => {
+  /* The outro used to draw a gold square with the text "AZ" inside it. The
+     shipped mark is a real asset; asserting on the string 'AZ' would pass for
+     the fake and fail for the real one, which is exactly backwards. */
+  for (const sectionCode of ['AI', 'Library', 'Solutions']) {
+    const nodes = buildOutro({ theme, brand, plan: { ...plan, sectionCode } });
+    const artwork = nodes.filter((n) => n.type === 'svg');
+    assert.ok(artwork.length > 0, `${sectionCode}: outro has no identity artwork`);
+    const typedMark = nodes.some((n) => n.type === 'text' && n.content.trim() === 'AZ');
+    assert.equal(typedMark, false, `${sectionCode}: outro still types the mark instead of placing it`);
+  }
 });
 
 test('every motion preset returns a finite style for any progress', () => {
@@ -291,4 +304,109 @@ test('cover heading ink never matches the background it sits on', () => {
       );
     }
   }
+});
+
+/* ───────────── identity rollout: carousel, reel, outro, theme truth ─────────────
+ * The identity layer used to be wired to the cover only. Carousel slides — the
+ * main product output, 40 of the 48 scheduled publishes in the plan — rendered
+ * with no section artwork at all, and the theme came from brand.json even where
+ * brand.json disagreed with the shipped background.
+ */
+import { patternOverlay, avatarDisc } from '../app/server/src/engine/canvas.js';
+import { patternFor } from '../app/server/src/engine/assets.js';
+import { themeFor } from '../app/server/src/services/brand.js';
+
+test('brand.json theme mode matches the artwork it is painted on', () => {
+  /* Calculators was declared light with a #071923 background; Solutions was
+     declared dark with #F9F7F2. Both produced unreadable text. */
+  for (const sectionCode of ['AI', 'Library', 'Magazine', 'Calculators', 'Solutions', 'Academy']) {
+    const theme = themeFor(sectionCode);
+    const tone = backgroundTone(sectionCode);
+    assert.equal(theme.isDark, tone.isDark, `${sectionCode}: theme and artwork disagree`);
+    assert.equal(theme.themeCorrection, undefined, `${sectionCode} still needs a correction`);
+  }
+});
+
+test('forced theme mode still wins over the artwork', () => {
+  const forced = themeFor('Library', 'dark');
+  assert.equal(forced.isDark, true);
+});
+
+test('pattern overlay drops the opaque page fill', () => {
+  /* Every pattern file paints #F8FAFC before its tiles. Kept, that wipes a dark
+     section to near-white. */
+  const overlay = patternOverlay('AI', { width: 1080, height: 1920 });
+  assert.ok(overlay, 'AI should ship a pattern');
+  assert.equal(/fill="#F8FAFC"/i.test(overlay.inner), false, 'page fill must be stripped');
+  assert.equal(/fill="#FFFFFF"/i.test(overlay.inner), false, 'white page fill must be stripped too');
+});
+
+test('pattern overlay namespaces its tile id per section', () => {
+  /* Two sections in one document (a carousel exporting N slides) would otherwise
+     both define id="tile" and the second would win. */
+  const a = patternOverlay('AI', { width: 1080, height: 1920 });
+  const b = patternOverlay('Library', { width: 1080, height: 1920 });
+  assert.match(a.inner, /id="tile-AI-identity-weave"/);
+  assert.match(b.inner, /id="tile-Library-identity-weave"/);
+  assert.equal(/id="tile"/.test(a.inner), false, 'un-namespaced id leaked');
+});
+
+test('patternFor resolves one named pattern per section', () => {
+  for (const sectionCode of ['AI', 'Library', 'Calculators']) {
+    for (const name of ['editorial-system', 'identity-weave']) {
+      const p = patternFor(sectionCode, name);
+      assert.ok(p?.body, `${sectionCode}/${name} missing`);
+    }
+  }
+  assert.equal(patternFor('Nope', 'identity-weave'), null);
+});
+
+test('avatarDisc only emits artwork when the asset exists', () => {
+  const nodes = avatarDisc({ sectionCode: 'AI', x: 100, y: 100, size: 120 });
+  assert.ok(nodes.length > 0);
+  assert.ok(nodes.every((n) => n.type === 'svg' || n.type === 'circle'));
+});
+
+test('carousel slides carry the section background and pattern', () => {
+  for (const sectionCode of ['AI', 'Library', 'Solutions']) {
+    const nodes = buildCarouselSlide({
+      plan: { title: 'چگونه ضایعات کافه را ۳۰٪ کم کنیم', sectionCode },
+      theme: { isDark: true, bg: '#0A1931', text: '#F8FAFC', textMuted: '#A8B6CC', accent: '#FFB400', gold: '#FFB400' },
+      brand,
+      slide: { slideNumber: 1, heading: 'سرتیتر', body: 'متن', items: [], chartData: [] },
+      index: 0,
+      total: 3,
+    });
+    const artwork = nodes.filter((n) => n.type === 'svg');
+    assert.ok(artwork.length >= 3, `${sectionCode}: expected background + pattern + logos, got ${artwork.length}`);
+  }
+});
+
+test('reel scenes carry the landscape section background', () => {
+  const nodes = buildReelScene({
+    plan: { title: 'ریل ۳۰٪', sectionCode: 'AI' },
+    theme: { isDark: false, bg: '#F8FAFC', text: '#0A1931', textMuted: '#475569', accent: '#5D5FEF', gold: '#FFB400' },
+    brand,
+    scene: { cardTitle: 'کارت', items: [], chartData: [] },
+    sceneIndex: 0,
+    totalScenes: 2,
+  }).nodes;
+  /* The caller asked for light; AI's artwork is dark, so the theme must flip. */
+  assert.ok(nodes.filter((n) => n.type === 'svg').length >= 2);
+});
+
+test('carousel slide counter never overlaps the subbrand lockup', () => {
+  /* Both used to render at x=76, y≈78; the overlap read as a corrupted logo. */
+  const nodes = buildCarouselSlide({
+    plan: { title: 'ت', sectionCode: 'Library' },
+    theme: themeFor('Library'),
+    brand,
+    slide: { slideNumber: 1, heading: 'h', body: 'b', items: [], chartData: [] },
+    index: 0,
+    total: 4,
+  });
+  const lockup = nodes.find((n) => n.type === 'svg' && n.x < 120 && n.y > 40 && n.y < 120);
+  const counter = nodes.find((n) => n.type === 'text' && /\//.test(n.content));
+  assert.ok(lockup && counter, 'both elements must exist');
+  assert.ok(counter.y > lockup.y + lockup.h - 8, `counter y=${counter.y} overlaps lockup bottom=${lockup.y + lockup.h}`);
 });

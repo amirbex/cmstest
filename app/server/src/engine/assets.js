@@ -322,6 +322,25 @@ export function backgroundTone(sectionCode, orientation = 'portrait') {
   return { lum: +lum.toFixed(4), isDark: lum < 0.35, bg: full };
 }
 
+/**
+ * One pattern file, ready to place.
+ *
+ * The two shipped patterns are 1920×1080 and paint their own page fill (always
+ * `#F8FAFC`, on every section, regardless of the section background). Dropped in
+ * as-is they would destroy a dark section, so the canvas places them with the
+ * page fill suppressed and only the tiled artwork kept — see `patternOverlay`
+ * in canvas.js. This function just resolves and caches the geometry.
+ *
+ * @param {'editorial-system'|'identity-weave'} name
+ */
+export function patternFor(sectionCode, name = 'identity-weave') {
+  const dir = BRAND_DIRS[sectionCode];
+  if (!dir) return null;
+  const rel = `patterns/${dir}/${name}.svg`;
+  const geometry = readSvgGeometry(rel);
+  return geometry ? { ...geometry, rel, kind: 'svg' } : null;
+}
+
 export function patternsFor(sectionCode) {
   const dir = BRAND_DIRS[sectionCode];
   if (!dir) return [];
