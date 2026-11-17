@@ -9,6 +9,7 @@ import { AssetsRoom } from './Assets';
 import { InsightsRoom } from './Insights';
 import { PromptsRoom } from './Prompts';
 import { MonitorRoom } from './Monitor';
+import { SkillsRoom } from './Skills';
 
 export type RoomKey =
   | 'command'
@@ -20,6 +21,7 @@ export type RoomKey =
   | 'assets'
   | 'insights'
   | 'prompts'
+  | 'skills'
   | 'monitor';
 
 export interface RoomProps {
@@ -36,6 +38,7 @@ export const ROOM_META: Record<RoomKey, { title: string; subtitle: string }> = {
   assets: { title: 'مخزن دارایی', subtitle: 'فایل‌ها، فونت‌ها و نمونه‌های صوتی' },
   insights: { title: 'داده و بینش', subtitle: 'قیف محتوا و شاخص‌های اندازه‌گیری‌شده' },
   prompts: { title: 'پرامپت‌های ایجنت', subtitle: 'شخصیت، لحن و قواعد تولید' },
+  skills: { title: 'ایجنت‌ها و مهارت‌ها', subtitle: 'نقش‌ها، مهارت‌های تزریقی و پرامپت نهایی' },
   monitor: { title: 'نظارت و لاگ', subtitle: 'صف رندر، سهمیه مدل و رویدادها' },
 };
 
@@ -59,6 +62,8 @@ export function RoomView({ room, onNavigate }: { room: RoomKey; onNavigate: (roo
       return <InsightsRoom onNavigate={onNavigate} />;
     case 'prompts':
       return <PromptsRoom onNavigate={onNavigate} />;
+    case 'skills':
+      return <SkillsRoom onNavigate={onNavigate} />;
     case 'monitor':
       return <MonitorRoom onNavigate={onNavigate} />;
     default:

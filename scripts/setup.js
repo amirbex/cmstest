@@ -123,7 +123,40 @@ pyImport('edge_tts')
 
 const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ATOZ_AI_KEY;
 if (apiKey) ok('AI provider key', 'cloud generation enabled');
-else warn('AI provider key', 'absent — running in offline template mode (fully functional)');
+else warn('AI provider key', 'absent — cloud agents will fall back');
+
+/* local model reachability decides between local-llm and template mode */
+const localUrl = process.env.ATOZ_LOCAL_AI_URL;
+if (localUrl) {
+  try {
+    const res = await fetch(`${localUrl.replace(/\/+$/, '')}/models`, {
+      signal: AbortSignal.timeout(4000),
+      headers: process.env.ATOZ_LOCAL_AI_KEY ? { authorization: `Bearer ${process.env.ATOZ_LOCAL_AI_KEY}` } : {},
+    });
+    if (res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const models = (body.data ?? []).map((m) => m.id).slice(0, 3);
+      ok('Local LLM', `${localUrl} · ${models.join(', ') || 'reachable'}`);
+    } else {
+      bad('Local LLM', `${localUrl} responded ${res.status} — check ATOZ_LOCAL_AI_URL`);
+    }
+  } catch (err) {
+    bad('Local LLM', `${localUrl} unreachable — ${err.message}`);
+  }
+} else {
+  warn('Local LLM', 'not configured — set ATOZ_LOCAL_AI_URL for a free offline model');
+}
+
+/* skills are the injected prompt context; an empty folder silently degrades output */
+const skillDir = path.join(ROOT, 'skills');
+const skillCount = fs.existsSync(skillDir)
+  ? fs.readdirSync(skillDir, { recursive: true }).filter((f) => String(f).endsWith('SKILL.md')).length
+  : 0;
+skillCount ? ok('Skills', `${skillCount} SKILL.md files`) : bad('Skills', '— skills/ is empty; prompts get no injected rules');
+
+const kbDir = path.join(ROOT, 'knowledge-base');
+const kbCount = fs.existsSync(kbDir) ? fs.readdirSync(kbDir).filter((f) => f.endsWith('.md')).length : 0;
+kbCount ? ok('Knowledge base', `${kbCount} documents`) : warn('Knowledge base', 'empty — agents get no brand truth');
 
 /* ─────────────── 6. storage layout ─────────────── */
 

@@ -32,7 +32,22 @@ const CHAIN = (process.env.ATOZ_MODEL_CHAIN || 'gemini-2.5-flash,gemini-2.5-flas
   .filter(Boolean);
 
 const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-export const AI_MODE = API_KEY ? 'cloud' : (process.env.ATOZ_AI_MODE || 'local');
+
+/**
+ * Local model provider — an OpenAI-compatible endpoint, which covers Ollama
+ * (`http://localhost:11434/v1`), LM Studio, llama.cpp server, vLLM and Jan.
+ * This is the offline brain: no key, no network egress, no per-token cost.
+ * Enable with ATOZ_LOCAL_AI_URL; model name via ATOZ_LOCAL_AI_MODEL.
+ */
+const LOCAL_AI_URL = (process.env.ATOZ_LOCAL_AI_URL || '').replace(/\/+$/, '');
+const LOCAL_AI_MODEL = process.env.ATOZ_LOCAL_AI_MODEL || 'qwen2.5:7b-instruct';
+
+/** `cloud` (key present) → `local-llm` (Ollama reachable) → `local` (templates). */
+export const AI_MODE = API_KEY
+  ? 'cloud'
+  : LOCAL_AI_URL
+    ? 'local-llm'
+    : process.env.ATOZ_AI_MODE || 'local';
 
 const demoted = new Map(); // model -> unix ms until which it is skipped
 
@@ -44,19 +59,25 @@ export function quotaSnapshot() {
   const day = today();
   const rows = db.prepare('SELECT * FROM quota_usage WHERE day = ?').all(day);
   const usage = Object.fromEntries(rows.map((r) => [r.model, r]));
-  return CHAIN.map((model) => ({
+  /* In local-llm mode the chain is irrelevant — report the model actually used.
+     Local models also have no per-request cost, so the figure reads 0 by design
+     rather than by accident. */
+  const models = LOCAL_AI_URL && !API_KEY ? [LOCAL_AI_MODEL] : CHAIN;
+  return models.map((model) => ({
     model,
     used: usage[model]?.requests ?? 0,
     tokens: usage[model]?.tokens ?? 0,
     costUsd: +(usage[model]?.cost_usd ?? 0).toFixed(4),
     limit: MODEL_LIMITS[model]?.rpd ?? 500,
     rpm: MODEL_LIMITS[model]?.rpm ?? 10,
+    local: !MODEL_LIMITS[model],
   }));
 }
 
 function meter(model, tokens, latencyMs, agentId, status, promptLen, outputLen, detail = null) {
   const day = today();
-  const cost = ((MODEL_LIMITS[model]?.costPer1k ?? 0.0002) * tokens) / 1000;
+  /* A local model has no marginal cost; charging it would make the monitor lie. */
+  const cost = MODEL_LIMITS[model] ? (MODEL_LIMITS[model].costPer1k * tokens) / 1000 : 0;
   db.prepare(
     `INSERT INTO quota_usage (day, model, requests, tokens, cost_usd) VALUES (?,?,1,?,?)
      ON CONFLICT(day, model) DO UPDATE SET requests = requests + 1, tokens = tokens + excluded.tokens,
@@ -70,10 +91,56 @@ function meter(model, tokens, latencyMs, agentId, status, promptLen, outputLen, 
 
 /* ────────────────────────── knowledge ────────────────────────── */
 
-/** Recursively load knowledge-base and skills markdown (v5.0 read only top level). */
-export function loadKnowledge() {
-  const roots = ['knowledge-base', 'skills'];
-  const parts = [];
+/**
+ * Skills + knowledge loader.
+ *
+ * A "skill" is a markdown file under `skills/<id>/SKILL.md` with YAML-ish
+ * front-matter. It is not documentation — it is *injected context*: the body is
+ * concatenated into the prompt of every agent listed in `agents`, so editing a
+ * file changes model behaviour with no code change.
+ *
+ *   ---
+ *   id: persian-copy
+ *   title: نگارش فارسی
+ *   agents: ATOOZ_CORE, SCRIPT_DIR
+ *   inject: true
+ *   ---
+ *   …rules…
+ *
+ * `knowledge-base/**\/*.md` is always-on brand truth and has no front-matter.
+ *
+ * v5.0 walked only the top level and ignored front-matter entirely; here we walk
+ * three levels deep, and each skill is addressable by id so a prompt can pull
+ * just the skills it needs.
+ */
+const ROOTS = { skills: 'skills', knowledge: 'knowledge-base' };
+const MAX_SKILL_CHARS = 2400;
+const MAX_TOTAL_CHARS = 14_000;
+
+/** Parse the small front-matter subset we use: `key: value` lines. */
+function parseFrontMatter(text) {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  if (!match) return { meta: {}, body: text };
+  const meta = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const sep = line.indexOf(':');
+    if (sep < 1) continue;
+    const key = line.slice(0, sep).trim();
+    const raw = line.slice(sep + 1).trim();
+    if (!key || !raw) continue;
+    meta[key] = /^(true|false)$/i.test(raw) ? raw.toLowerCase() === 'true' : raw;
+  }
+  return { meta, body: text.slice(match[0].length) };
+}
+
+let skillCache = null;
+
+/** Read and index every skill + knowledge file. Cached until `invalidateSkills()`. */
+export function loadSkillIndex({ force = false } = {}) {
+  if (skillCache && !force) return skillCache;
+  const skills = [];
+  const knowledge = [];
+
   const walk = (dir, depth = 0) => {
     let entries = [];
     try {
@@ -83,15 +150,105 @@ export function loadKnowledge() {
     }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory() && depth < 3) walk(full, depth + 1);
-      else if (entry.isFile() && entry.name.endsWith('.md')) {
-        const text = fs.readFileSync(full, 'utf-8');
-        parts.push(`\n--- [${full}] ---\n${text.slice(0, 2400)}`);
+      if (entry.isDirectory()) {
+        if (depth < 3) walk(full, depth + 1);
+        continue;
+      }
+      if (!entry.name.endsWith('.md') || entry.name.startsWith('.')) continue;
+      const raw = fs.readFileSync(full, 'utf-8');
+      const { meta, body } = parseFrontMatter(raw);
+      if (full.startsWith(path.resolve(ROOTS.skills))) {
+        const id = meta.id || path.basename(path.dirname(full));
+        skills.push({
+          id,
+          title: meta.title || id,
+          capability: meta.capability || '',
+          agents: String(meta.agents || '')
+            .split(',')
+            .map((a) => a.trim())
+            .filter(Boolean),
+          inject: meta.inject !== false,
+          tags: String(meta.tags || '')
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean),
+          file: path.relative(process.cwd(), full),
+          body: body.trim(),
+        });
+      } else {
+        knowledge.push({
+          id: path.basename(full, '.md'),
+          file: path.relative(process.cwd(), full),
+          body: body.trim(),
+        });
       }
     }
   };
-  for (const root of roots) walk(path.resolve(root));
-  return parts.join('');
+
+  walk(path.resolve(ROOTS.skills));
+  walk(path.resolve(ROOTS.knowledge));
+  skills.sort((a, b) => a.id.localeCompare(b.id));
+  knowledge.sort((a, b) => a.id.localeCompare(b.id));
+
+  skillCache = { skills, knowledge, loadedAt: nowIso() };
+  return skillCache;
+}
+
+export function invalidateSkills() {
+  skillCache = null;
+}
+
+/**
+ * Build the injectable context for one agent.
+ *
+ * Includes always-on knowledge plus every skill whose `agents` lists this agent
+ * (or that universally applies when `agents` is empty). Budgeted so a runaway
+ * knowledge base can never silently blow up a prompt.
+ */
+export function buildContext(agentId) {
+  const { skills, knowledge } = loadSkillIndex();
+  const parts = [];
+  let used = 0;
+  const push = (label, file, body) => {
+    const slice = body.slice(0, MAX_SKILL_CHARS);
+    if (used + slice.length > MAX_TOTAL_CHARS) return false;
+    used += slice.length;
+    parts.push(`\n--- [${label} · ${file}] ---\n${slice}`);
+    return true;
+  };
+
+  for (const doc of knowledge) push(doc.id, doc.file, doc.body);
+  const applied = [];
+  for (const skill of skills) {
+    if (!skill.inject) continue;
+    if (skill.agents.length && !skill.agents.includes(agentId)) continue;
+    if (push(skill.id, skill.file, skill.body)) applied.push(skill.id);
+  }
+  return { text: parts.join(''), applied, chars: used };
+}
+
+/** Backwards-compatible: the whole knowledge+skills blob, no agent filter. */
+export function loadKnowledge() {
+  const { skills, knowledge } = loadSkillIndex();
+  return [...knowledge.map((k) => ({ ...k, label: 'knowledge' })), ...skills.map((s) => ({ ...s, label: 'skill' }))]
+    .map((item) => `\n--- [${item.file}] ---\n${item.body.slice(0, MAX_SKILL_CHARS)}`)
+    .join('');
+}
+
+/** The skill catalogue, for the Skills room and the API. */
+export function listSkills() {
+  const { skills, knowledge, loadedAt } = loadSkillIndex();
+  return {
+    loadedAt,
+    skills: skills.map(({ body, ...rest }) => ({ ...rest, chars: body.length, preview: body.slice(0, 260) })),
+    knowledge: knowledge.map(({ body, ...rest }) => ({ ...rest, chars: body.length, preview: body.slice(0, 260) })),
+  };
+}
+
+/** Read one skill's full body (for the editor in the Skills room). */
+export function readSkill(id) {
+  const { skills, knowledge } = loadSkillIndex();
+  return [...skills, ...knowledge].find((item) => item.id === id) ?? null;
 }
 
 /* ────────────────────────── prompts ────────────────────────── */
@@ -160,9 +317,44 @@ async function getSdk() {
   }
 }
 
+/**
+ * One call against an OpenAI-compatible `/chat/completions` endpoint.
+ * Deliberately dependency-free (plain fetch) so no SDK is needed offline.
+ */
+async function callLocalModel({ prompt, json = true, agentId = 'system' }) {
+  const started = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.ATOZ_LOCAL_AI_TIMEOUT_MS || 120_000));
+  try {
+    const res = await fetch(`${LOCAL_AI_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: LOCAL_AI_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        ...(json ? { response_format: { type: 'json_object' } } : {}),
+      }),
+    });
+    if (!res.ok) throw new Error(`local model ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const body = await res.json();
+    const text = body?.choices?.[0]?.message?.content ?? '';
+    const latency = Date.now() - started;
+    const tokens = body?.usage?.total_tokens ?? Math.round((prompt.length + text.length) / 4);
+    meter(LOCAL_AI_MODEL, tokens, latency, agentId, 'ok', prompt.length, text.length);
+    return { text, model: LOCAL_AI_MODEL, tokens, latency };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function callModel({ model, prompt, json = true, agentId = 'system' }) {
   const client = await getSdk();
-  if (!client) throw Object.assign(new Error('کلید API تنظیم نشده است'), { code: 'NO_KEY' });
+  if (!client) {
+    if (LOCAL_AI_URL) return callLocalModel({ prompt, json, agentId });
+    throw Object.assign(new Error('کلید API تنظیم نشده است'), { code: 'NO_KEY' });
+  }
   const started = Date.now();
   const res = await client.models.generateContent({
     model,
@@ -192,9 +384,11 @@ export async function askJson({ schema, prompt, agentId = 'system', label = 'پ�
           attempt === 0
             ? prompt
             : `${prompt}\n\nپاسخ قبلی نامعتبر بود: ${errors.at(-1)}.\nفقط و فقط JSON معتبر مطابق ساختار بخواه برگردان.`;
-        const { text } = await callModel({ model, prompt: enriched, agentId });
+        const { text, model: usedModel } = await callModel({ model, prompt: enriched, agentId });
         const parsed = schema.safeParse(extractJson(text));
-        if (parsed.success) return { data: parsed.data, model };
+        /* Report the model that actually answered, not the slot we asked for:
+           the local fallback answers under a different name than the chain. */
+        if (parsed.success) return { data: parsed.data, model: usedModel, via: usedModel === model ? 'chain' : 'local' };
         errors.push(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
         meter(model, 0, 0, agentId, 'invalid-json', prompt.length, text.length, errors.at(-1));
       } catch (err) {
@@ -375,7 +569,8 @@ function localDeliverables({ conceptTitle, conceptSummary, sectionCode, counts }
 
 export async function expandConcepts({ rawIdea, sectionCode = 'Library', useWebSearch = false }) {
   const prompts = getPrompts();
-  const knowledge = loadKnowledge();
+  const ctx = buildContext('MKT_DIR');
+  const knowledge = ctx.text;
   const prompt = `${prompts.IDEATION_STRATEGY}
 
 دانش‌پایه برند:
@@ -392,13 +587,14 @@ ${knowledge}
     agentId: 'MKT_DIR',
     label: 'ایده‌پردازی',
   });
-  if (data) return { ...data, source: model, mode: 'cloud' };
-  return { ...localConcepts(rawIdea, sectionCode), source: 'local-template', mode: 'local', webSearch: useWebSearch && false };
+  if (data) return { ...data, source: model, mode: LOCAL_AI_URL && model === LOCAL_AI_MODEL ? 'local-llm' : 'cloud' };
+  return { ...localConcepts(rawIdea, sectionCode), source: 'local-template', mode: 'local', webSearch: false };
 }
 
 export async function generateBatch({ conceptTitle, conceptSummary, sectionCode = 'Library', counts = {} }) {
   const prompts = getPrompts();
-  const knowledge = loadKnowledge();
+  const ctx = buildContext('SCRIPT_DIR');
+  const knowledge = ctx.text;
   const spec = [];
   for (let i = 0; i < (counts.article || 0); i++) spec.push('article');
   for (let i = 0; i < (counts.reels || 0); i++) spec.push('reel');
@@ -427,7 +623,7 @@ ${knowledge}
     agentId: 'SCRIPT_DIR',
     label: 'کارخانه محتوا',
   });
-  if (data) return { ...data, source: model, mode: 'cloud' };
+  if (data) return { ...data, source: model, mode: LOCAL_AI_URL && model === LOCAL_AI_MODEL ? 'local-llm' : 'cloud' };
 
   // Attempt a local repair of a partially-valid cloud response is out of scope:
   // deterministic template output is always better than a broken pipeline.
@@ -436,7 +632,11 @@ ${knowledge}
 
 export async function atoozDecide({ message, context }) {
   const prompts = getPrompts();
+  const ctx = buildContext('ATOOZ_CORE');
   const prompt = `${prompts.ATOOZ_CORE}
+
+دانش‌پایه و مهارت‌های فعال:
+${ctx.text}
 
 داده‌ی زنده:
 ${JSON.stringify(context)}
@@ -505,11 +705,78 @@ export function listAgentRuns(limit = 60) {
   }));
 }
 
+/**
+ * The agent roster. Each entry is a role with its own prompt key, its own
+ * skills, its own output contract and its own quota bucket — not a chat
+ * persona. Adding an agent means adding a prompt key + a `skills/` folder.
+ */
+export const AGENTS = [
+  {
+    id: 'ATOOZ_CORE',
+    label: 'آتوز — دستیار فرماندهی',
+    role: 'گفت‌وگو با کاربر، تصمیم‌گیری و پیشنهاد اقدام',
+    promptKey: 'ATOOZ_CORE',
+    schema: 'AtoozDecision',
+    canAct: true,
+    model: 'chain',
+  },
+  {
+    id: 'MKT_DIR',
+    label: 'مدیر بازاریابی',
+    role: 'تحلیل موضوع و ساخت سه کانسپت متمایز',
+    promptKey: 'IDEATION_STRATEGY',
+    schema: 'ConceptResponse',
+    canAct: false,
+    model: 'chain',
+  },
+  {
+    id: 'SCRIPT_DIR',
+    label: 'کارگردان محتوا',
+    role: 'ساخت بسته‌ی کامل: صحنه، نریشن، کاروسل، سوشال',
+    promptKey: 'UNIFIED_CONTENT_FACTORY',
+    schema: 'FactoryResponse',
+    canAct: false,
+    model: 'chain',
+  },
+  {
+    id: 'SEO_EDITOR',
+    label: 'ویراستار فنی سئو',
+    role: 'ساختاردهی HTML معنایی برای مقاله',
+    promptKey: 'SEO_EDITOR',
+    schema: 'articleHtml (sub-field)',
+    canAct: false,
+    model: 'chain',
+  },
+];
+
+/** Roster augmented with live skill bindings and last-run telemetry. */
+export function agentRoster() {
+  return AGENTS.map((agent) => {
+    const ctx = buildContext(agent.id);
+    const last = db
+      .prepare('SELECT status, latency_ms, tokens, created_at FROM agent_run WHERE agent_id = ? ORDER BY id DESC LIMIT 1')
+      .get(agent.id);
+    const runs = db.prepare('SELECT COUNT(*) AS n FROM agent_run WHERE agent_id = ?').get(agent.id).n;
+    return {
+      ...agent,
+      skills: ctx.applied,
+      contextChars: ctx.chars,
+      runs,
+      lastRunAt: last?.created_at ?? null,
+      lastLatencyMs: last?.latency_ms ?? null,
+    };
+  });
+}
+
 export function aiStatus() {
   return {
     mode: AI_MODE,
     hasKey: Boolean(API_KEY),
+    localUrl: LOCAL_AI_URL || null,
+    localModel: LOCAL_AI_URL ? LOCAL_AI_MODEL : null,
     chain: CHAIN,
+    agents: AGENTS.length,
+    skills: loadSkillIndex().skills.filter((s) => s.inject).length,
     demoted: [...demoted.entries()].map(([model, until]) => ({ model, until })),
     lastRunAt: getMeta('ai:lastRunAt', null),
   };

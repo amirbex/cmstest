@@ -36,7 +36,22 @@ import {
 } from '../services/repo.js';
 import { ingestPuzzleBlock, persistGeneratedBatch, duplicateContent, bulkSetStatus, seedDemoIfEmpty } from '../services/content.js';
 import { db as appDb } from '../lib/db.js';
-import { expandConcepts, generateBatch, atoozDecide, quotaSnapshot, getPrompts, savePrompts, listAgentRuns, aiStatus } from '../services/ai.js';
+import {
+  expandConcepts,
+  generateBatch,
+  atoozDecide,
+  quotaSnapshot,
+  getPrompts,
+  savePrompts,
+  listAgentRuns,
+  aiStatus,
+  agentRoster,
+  listSkills,
+  readSkill,
+  loadSkillIndex,
+  invalidateSkills,
+  buildContext,
+} from '../services/ai.js';
 import { synthesizeVoice, listVoiceEngines } from '../services/voice.js';
 import { enqueue, getJob, listJobs, cancelJob, queueDepth, onJobEvent } from '../services/queue.js';
 import { weekBoard, monthBoard, scheduleDelivery, rollover, publishDelivery, describe } from '../services/calendar.js';
@@ -105,6 +120,30 @@ export function buildApp() {
       presets: MOTION_KEYS.map((key) => ({ key, label: MOTIONS[key].label })),
       transitions: Object.entries(TRANSITIONS).map(([key, v]) => ({ key, label: v.label })),
     },
+  }));
+
+  /* ── agents & skills ── */
+  app.get('/api/agents', () => ({ success: true, data: { agents: agentRoster(), status: aiStatus() } }));
+
+  app.get('/api/skills', () => ({ success: true, data: listSkills() }));
+
+  app.get('/api/skills/:id', ({ params }) => {
+    const skill = readSkill(params.id);
+    if (!skill) throw notFound('مهارت پیدا نشد');
+    return { success: true, data: skill };
+  });
+
+  /** Reload skills from disk after editing a SKILL.md by hand. */
+  app.post('/api/skills/reload', () => {
+    invalidateSkills();
+    const index = loadSkillIndex({ force: true });
+    return { success: true, data: { skills: index.skills.length, knowledge: index.knowledge.length } };
+  });
+
+  /** Exactly what an agent will be told — the debugging window into prompts. */
+  app.get('/api/skills/preview/:agentId', ({ params }) => ({
+    success: true,
+    data: { agentId: params.agentId, ...buildContext(params.agentId) },
   }));
 
   /* ── content ── */

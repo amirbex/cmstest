@@ -13,6 +13,7 @@ export const ROOMS: { key: RoomKey; label: string; short: string; icon: string; 
   { key: 'assets', label: 'مخزن دارایی', short: 'دارایی', icon: '🗄️', hint: 'فایل‌ها و صداها' },
   { key: 'insights', label: 'داده و بینش', short: 'داده', icon: '📈', hint: 'KPI و قیف' },
   { key: 'prompts', label: 'پرامپت‌های ایجنت', short: 'پرامپت', icon: '🧠', hint: 'شخصیت و لحن' },
+  { key: 'skills', label: 'ایجنت‌ها و مهارت‌ها', short: 'مهارت', icon: '🧩', hint: 'نقش‌ها و مهارت‌های تزریقی' },
   { key: 'monitor', label: 'نظارت و لاگ', short: 'نظارت', icon: '📡', hint: 'سهمیه، جاب، خطا' },
 ];
 

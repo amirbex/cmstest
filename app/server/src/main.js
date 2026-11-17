@@ -6,6 +6,22 @@
  * the studio always comes up in a usable local mode.
  */
 import 'node:process';
+import fs from 'node:fs';
+import path from 'node:path';
+
+/* Load .env before anything reads process.env (the AI service captures its
+   config at import time). `process.loadEnvFile` is built into Node 22 — no
+   dotenv dependency, and a missing file is simply ignored. */
+for (const candidate of ['.env', path.join('..', '..', '.env')]) {
+  if (fs.existsSync(candidate)) {
+    try {
+      process.loadEnvFile(candidate);
+    } catch (err) {
+      console.warn(`تحذیر: ${candidate} خوانده نشد — ${err.message}`);
+    }
+  }
+}
+
 import { buildApp } from './routes/index.js';
 import { startWorker } from './services/queue.js';
 import { ensurePuzzleBlocks, notify } from './services/repo.js';

@@ -388,7 +388,84 @@ export const api = {
   prompts: () => get<Record<string, string>>('/api/prompts'),
   savePrompts: (patchBody: Record<string, string>) => post<Record<string, string>>('/api/prompts', patchBody),
 
+  agents: () => get<AgentRoster>('/api/agents'),
+  skills: () => get<SkillsIndex>('/api/skills'),
+  skill: (id: string) => get<SkillDetail>(`/api/skills/${encodeURIComponent(id)}`),
+  reloadSkills: () => post<{ skills: number; knowledge: number }>('/api/skills/reload'),
+  contextPreview: (agentId: string) => get<ContextPreview>(`/api/skills/preview/${encodeURIComponent(agentId)}`),
+
   seedDemo: () => post<{ seeded: boolean }>('/api/demo/seed'),
 };
+
+
+/* ────────────────────────── agents & skills ────────────────────────── */
+
+export interface AgentDef {
+  id: string;
+  label: string;
+  role: string;
+  promptKey: string;
+  schema: string;
+  canAct: boolean;
+  model: string;
+  skills: string[];
+  contextChars: number;
+  runs: number;
+  lastRunAt: string | null;
+  lastLatencyMs: number | null;
+}
+
+export interface AiStatus {
+  mode: 'cloud' | 'local-llm' | 'local' | string;
+  hasKey: boolean;
+  localUrl: string | null;
+  localModel: string | null;
+  chain: string[];
+  agents: number;
+  skills: number;
+  demoted: { model: string; until: number }[];
+  lastRunAt: string | null;
+}
+
+export interface AgentRoster {
+  agents: AgentDef[];
+  status: AiStatus;
+}
+
+export interface SkillSummary {
+  id: string;
+  title: string;
+  capability: string;
+  agents: string[];
+  inject: boolean;
+  tags: string[];
+  file: string;
+  chars: number;
+  preview: string;
+}
+
+export interface SkillsIndex {
+  loadedAt: string;
+  skills: SkillSummary[];
+  knowledge: Omit<SkillSummary, 'agents' | 'inject' | 'tags' | 'title' | 'capability'>[];
+}
+
+export interface SkillDetail {
+  id: string;
+  title?: string;
+  capability?: string;
+  agents?: string[];
+  inject?: boolean;
+  tags?: string[];
+  file: string;
+  body: string;
+}
+
+export interface ContextPreview {
+  agentId: string;
+  text: string;
+  applied: string[];
+  chars: number;
+}
 
 export const mediaUrl = (url: string) => url;
