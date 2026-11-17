@@ -220,7 +220,7 @@ export function IdeationRoom({ onNavigate }: RoomProps) {
                   >
                     تایید
                   </Button>
-                  <Button size="sm" variant="solid" style={{ flex: 1 }} onClick={() => onNavigate('plan')}>
+                  <Button size="sm" variant="solid" style={{ flex: 1 }} onClick={() => onNavigate('production')}>
                     بازبینی
                   </Button>
                 </div>

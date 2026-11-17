@@ -8,18 +8,20 @@ import { AtoozDock } from './components/Atooz';
 const VALID: RoomKey[] = [
   'command',
   'calendar',
-  'plan',
-  'ideation',
-  'studio',
-  'gallery',
+  'production',
+  'editor',
+  'templates',
   'assets',
   'insights',
+  'ideation',
   'prompts',
+  'skills',
   'monitor',
 ];
 
+/** Hash may carry a sub-route, e.g. #editor?doc=EDT-… — only the room matters here. */
 function readRoom(): RoomKey {
-  const hash = window.location.hash.replace('#', '') as RoomKey;
+  const hash = window.location.hash.replace('#', '').split('?')[0] as RoomKey;
   return VALID.includes(hash) ? hash : 'command';
 }
 

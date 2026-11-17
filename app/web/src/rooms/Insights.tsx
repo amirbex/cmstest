@@ -1,213 +1,305 @@
-import React, { useEffect, useState } from 'react';
-import { api, type Content, type Delivery } from '../lib/api';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from '../lib/store';
-import { Button, Card, Empty, Field, Modal, SectionBadge, Tabs, fa } from '../components/ui';
+import { planApi, type AnalyticsOverview, type PlanPublish, type RawMetrics, type Snapshot } from '../lib/api';
+import { Card, Empty, Button, fa, Tabs, Field, Modal, Progress, Spinner, Kpi } from '../components/ui';
 import type { RoomProps } from './index';
 
 /**
- * Real funnel analytics: every delivery carries measured KPIs computed on the
- * server (save rate, CTR, watch ratio). No invented numbers.
+ * Insights.
+ *
+ * Two hard rules, enforced by the server:
+ *   • the operator enters *raw* metrics only — impressions, saves, watch time
+ *   • every rate is derived, so a typo in one field can never masquerade as a KPI
+ *
+ * The three measurement windows (24h / 7d / 30d) are always visible, because a
+ * post's "engagement" at 24h and at 30d are different questions.
  */
-export function InsightsRoom(_props: RoomProps) {
-  const { state, run } = useStore();
-  const [contents, setContents] = useState<Content[]>([]);
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [tab, setTab] = useState<'funnel' | 'kpi'>('funnel');
-  const [editing, setEditing] = useState<(Delivery & { title?: string }) | null>(null);
-  const [form, setForm] = useState({ reach: 0, saves: 0, shares: 0, clicks: 0, avgWatchTimeSec: 0, videoDurationSec: 30 });
+export function InsightsRoom({ onNavigate }: RoomProps) {
+  const { run, toast } = useStore();
+  const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
+  const [publishes, setPublishes] = useState<PlanPublish[]>([]);
+  const [windowKey, setWindowKey] = useState<'24h' | '7d' | '30d'>('7d');
+  const [loading, setLoading] = useState(true);
+  const [entry, setEntry] = useState<PlanPublish | null>(null);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [draft, setDraft] = useState<RawMetrics>({});
 
-  const load = async () => {
-    const list = await api.contents();
-    setContents(list);
-    const all: Delivery[] = [];
-    for (const content of list.slice(0, 40)) {
-      try {
-        const detail = await api.content(content.contentId);
-        all.push(...detail.deliveries);
-      } catch {
-        /* skip */
-      }
-    }
-    setDeliveries(all);
-  };
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [a, p] = await Promise.all([
+      planApi.analytics({ window: windowKey }).catch(() => null),
+      planApi.publishes({ limit: 200 }).catch(() => []),
+    ]);
+    setOverview(a);
+    setPublishes(p);
+    setLoading(false);
+  }, [windowKey]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
-  const funnel = (['TOFU', 'MOFU', 'BOFU'] as const).map((stage) => ({
-    stage,
-    label: stage === 'TOFU' ? 'آگاهی (TOFU)' : stage === 'MOFU' ? 'در نظر گرفتن (MOFU)' : 'تصمیم (BOFU)',
-    contents: contents.filter((c) => c.funnelStage === stage),
-  }));
+  const openEntry = async (publish: PlanPublish) => {
+    setEntry(publish);
+    setDraft({});
+    const snaps = await planApi.snapshots(publish.deliveryId).catch(() => []);
+    setSnapshots(snaps);
+    /* prefill with whatever was last measured in this window */
+    const existing = snaps.find((s) => s.window === windowKey);
+    if (existing) setDraft(existing.raw ?? {});
+  };
 
-  const measured = deliveries.filter((d) => d.metrics.reach > 0);
-  const avg = (key: keyof Delivery['kpis']) =>
-    measured.length ? +(measured.reduce((sum, d) => sum + (d.kpis[key] ?? 0), 0) / measured.length).toFixed(2) : 0;
-
-  const openMetrics = (delivery: Delivery, title?: string) => {
-    setEditing({ ...delivery, title });
-    setForm({
-      reach: delivery.metrics.reach ?? 0,
-      saves: delivery.metrics.saves ?? 0,
-      shares: delivery.metrics.shares ?? 0,
-      clicks: delivery.metrics.clicks ?? 0,
-      avgWatchTimeSec: delivery.metrics.avgWatchTimeSec ?? 0,
-      videoDurationSec: delivery.metrics.videoDurationSec ?? 30,
+  const saveSnapshot = async () => {
+    if (!entry) return;
+    const result = await run(() => planApi.addSnapshot(entry.deliveryId, windowKey, draft), {
+      success: 'آمار ثبت شد؛ شاخص‌ها محاسبه شدند',
     });
+    if (result) {
+      setSnapshots(result);
+      await load();
+    }
   };
 
-  const saveMetrics = async () => {
-    if (!editing) return;
-    await run(() => api.metrics(editing.deliveryId, form), { success: 'شاخص‌ها ثبت شد' });
-    setEditing(null);
-    await load();
-  };
+  const measured = publishes.filter((p) => snapshots.length > 0);
+  const unmeasured = publishes.filter((p) => p.publishStatus === 'published');
+
+  const topByReach = useMemo(() => overview?.topPublishes ?? [], [overview]);
+
+  if (!loading && !overview?.totals.publishes) {
+    return (
+      <Empty
+        icon="📊"
+        title="داده‌ای برای تحلیل نیست"
+        text="اول پلن را وارد کن، بعد از انتشار، آمار خام را ثبت کن."
+        action={<Button variant="primary" onClick={() => onNavigate('command')}>داشبورد</Button>}
+      />
+    );
+  }
+
+  const METRIC_FIELDS: { key: keyof RawMetrics; label: string; hint?: string }[] = [
+    { key: 'reach', label: 'ریچ (Reach)', hint: 'تعداد حساب‌های یکتا' },
+    { key: 'views', label: 'بازدید (Views)' },
+    { key: 'likes', label: 'لایک' },
+    { key: 'comments', label: 'کامنت' },
+    { key: 'saves', label: 'ذخیره (Saves)' },
+    { key: 'shares', label: 'اشتراک‌گذاری' },
+    { key: 'clicks', label: 'کلیک روی لینک' },
+    { key: 'replies_and_sticker_taps', label: 'پاسخ/استیکر تلگرام' },
+    { key: 'avg_watch_time_sec', label: 'میانگین زمان تماشا (ثانیه)' },
+    { key: 'video_duration_sec', label: 'مدت ویدیو (ثانیه)' },
+    { key: 'unique_page_views', label: 'بازدید یکتای صفحه وب' },
+    { key: 'asset_downloads_or_tool_runs', label: 'اجرای ابزار/دانلود' },
+    { key: 'newsletter_signups', label: 'عضویت خبرنامه' },
+    { key: 'avg_time_on_page_sec', label: 'میانگین زمان روی صفحه (ثانیه)' },
+  ];
 
   return (
     <div className="stack" style={{ gap: 'var(--s-5)' }}>
+      <Card tight>
+        <div className="row-between" style={{ flexWrap: 'wrap', gap: 12 }}>
+          <Tabs
+            value={windowKey}
+            onChange={setWindowKey}
+            tabs={[
+              { key: '24h', label: '۲۴ ساعت' },
+              { key: '7d', label: '۷ روز' },
+              { key: '30d', label: '۳۰ روز' },
+            ]}
+          />
+          {loading && <Spinner size={14} />}
+        </div>
+      </Card>
+
       <div className="grid grid-4">
-        <Card tight>
-          <div className="kpi">
-            <span className="kpi-label">میانگین نرخ ذخیره</span>
-            <span className="kpi-value" style={{ fontSize: 'var(--fs-2xl)', color: 'var(--ok)' }}>{fa(avg('saveRate'))}٪</span>
+        <Kpi
+          label="ریچ کل"
+          value={fa(overview?.totals.reach ?? 0)}
+          icon="👁️"
+          tone="info"
+          hint={`${fa(overview?.totals.measured ?? 0)} اندازه‌گیری‌شده`}
+        />
+        <Kpi
+          label="نرخ تعامل"
+          value={overview?.rates.engagement_rate_by_reach != null ? `${fa(overview.rates.engagement_rate_by_reach.toFixed(1))}٪` : '—'}
+          icon="💬"
+          tone="gold"
+          hint={`${fa(overview?.totals.engagement ?? 0)} تعامل`}
+        />
+        <Kpi
+          label="نرخ ذخیره"
+          value={overview?.rates.save_rate != null ? `${fa(overview.rates.save_rate.toFixed(1))}٪` : '—'}
+          icon="🔖"
+          tone="ok"
+          hint="نشانهٔ ارزش ماندگار"
+        />
+        <Kpi
+          label="پوشش اندازه‌گیری"
+          value={`${fa(overview?.rates.measured_share ?? 0)}٪`}
+          icon="📏"
+          tone={(overview?.rates.measured_share ?? 0) > 60 ? 'ok' : 'warn'}
+          hint="نسبت انتشارهای دارای داده"
+        />
+      </div>
+
+      <div className="grid grid-2" style={{ alignItems: 'start' }}>
+        <Card title="عملکرد پلتفرم" subtitle="نسبت به ریچ همان پلتفرم">
+          <div className="stack" style={{ gap: 12 }}>
+            {(overview?.byPlatform ?? []).map((p) => (
+              <div key={p.platform} className="stack" style={{ gap: 4 }}>
+                <div className="row-between text-2xs">
+                  <span className="font-bold">{p.label}</span>
+                  <span className="num dim">
+                    {fa(p.reach)} ریچ · {fa(p.publishes)} انتشار
+                  </span>
+                </div>
+                <Progress value={p.reach ? Math.min(100, (p.engagement / p.reach) * 100) : 0} />
+              </div>
+            ))}
+            {(overview?.byPlatform ?? []).length === 0 && <span className="text-xs dim">داده‌ای نیست</span>}
           </div>
         </Card>
-        <Card tight>
-          <div className="kpi">
-            <span className="kpi-label">میانگین CTR</span>
-            <span className="kpi-value" style={{ fontSize: 'var(--fs-2xl)', color: 'var(--info)' }}>{fa(avg('ctr'))}٪</span>
-          </div>
-        </Card>
-        <Card tight>
-          <div className="kpi">
-            <span className="kpi-label">نرخ اشتراک</span>
-            <span className="kpi-value" style={{ fontSize: 'var(--fs-2xl)', color: 'var(--gold)' }}>{fa(avg('shareRate'))}٪</span>
-          </div>
-        </Card>
-        <Card tight>
-          <div className="kpi">
-            <span className="kpi-label">نسبت تماشا</span>
-            <span className="kpi-value" style={{ fontSize: 'var(--fs-2xl)' }}>{fa(avg('avgWatchRatio'))}٪</span>
+
+        <Card title="قیف محتوا" subtitle="تعداد انتشار در هر مرحله">
+          <div className="stack" style={{ gap: 10 }}>
+            {(overview?.byFunnel ?? []).map((f) => (
+              <div key={f.stage} className="card card--tight" style={{ background: 'var(--surface-2)' }}>
+                <div className="row-between">
+                  <span className="text-xs font-bold">{FUNNEL_LABEL[f.stage] ?? f.stage}</span>
+                  <span className="num text-sm">{fa(f.publishes)}</span>
+                </div>
+                <div className="text-2xs dim" style={{ marginTop: 3 }}>
+                  {fa(f.published)} منتشرشده
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
       </div>
 
-      <Tabs<'funnel' | 'kpi'>
-        tabs={[
-          { key: 'funnel', label: 'قیف محتوا', count: contents.length },
-          { key: 'kpi', label: 'شاخص‌های اندازه‌گیری‌شده', count: measured.length },
-        ]}
-        value={tab}
-        onChange={setTab}
-      />
-
-      {tab === 'funnel' && (
-        <div className="grid grid-3">
-          {funnel.map((column) => (
-            <Card key={column.stage} title={column.label} subtitle={`${fa(column.contents.length)} محتوا`}>
-              {column.contents.length === 0 ? (
-                <div className="text-2xs dim" style={{ padding: '16px 0', textAlign: 'center' }}>خالی</div>
-              ) : (
-                <div className="stack" style={{ gap: 8 }}>
-                  {column.contents.slice(0, 8).map((content) => (
-                    <div key={content.contentId} className="card card--tight" style={{ background: 'var(--surface-2)', padding: 8 }}>
-                      <div className="text-2xs font-bold clamp-2" style={{ lineHeight: 1.6 }}>{content.title}</div>
-                      <div className="row" style={{ gap: 4, marginTop: 4 }}>
-                        <SectionBadge section={content.sectionCode} />
-                      </div>
-                    </div>
-                  ))}
+      {topByReach.length > 0 && (
+        <Card title="بهترین انتشارها" subtitle={`بر اساس ریچ در بازهٔ ${windowKey}`}>
+          <div className="stack" style={{ gap: 6 }}>
+            {topByReach.map((p) => (
+              <div key={p.deliveryId} className="row-between text-2xs" style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                <span className="clamp-1" style={{ maxWidth: '55%' }}>{p.title || p.deliveryId}</span>
+                <div className="row" style={{ gap: 8 }}>
+                  <span className="chip">{p.platformLabel}</span>
+                  <span className="num" style={{ color: 'var(--gold)' }}>{fa(p.reach)}</span>
                 </div>
-              )}
-            </Card>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card
+        title="ثبت آمار خام"
+        subtitle="فقط اعداد واقعی پلتفرم؛ شاخص‌ها را سرور محاسبه می‌کند"
+        actions={<span className="chip chip--info">{fa(measured.length > 0 ? measured.length : publishes.length)} انتشار</span>}
+      >
+        <div className="stack" style={{ gap: 4, maxHeight: 380, overflowY: 'auto' }}>
+          {publishes.map((p) => (
+            <button
+              key={p.deliveryId}
+              className="row-between card card--tight"
+              style={{
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                cursor: 'pointer',
+                textAlign: 'right',
+                fontFamily: 'inherit',
+                color: 'inherit',
+                width: '100%',
+                padding: '8px 10px',
+              }}
+              onClick={() => void openEntry(p)}
+            >
+              <div className="stack" style={{ gap: 2, maxWidth: '70%' }}>
+                <span className="text-2xs font-bold clamp-1">
+                  {p.content?.ready_caption?.slice(0, 70) || p.deliveryId}
+                </span>
+                <span className="text-2xs dim">
+                  {p.platformLabel} · {p.formatLabel} · {p.scheduleKey}
+                </span>
+              </div>
+              <span className={`chip ${p.publishStatus === 'published' ? 'chip--ok' : 'chip--info'}`}>
+                {p.publishStatus === 'published' ? 'منتشرشده' : 'زمان‌بندی‌شده'}
+              </span>
+            </button>
           ))}
         </div>
-      )}
-
-      {tab === 'kpi' && (
-        measured.length === 0 ? (
-          <Empty
-            icon="📈"
-            title="هیچ شاخصی ثبت نشده"
-            text="پس از انتشار، اعداد واقعی هر پست را وارد کن تا نرخ ذخیره، CTR و نسبت تماشا محاسبه شود."
-          />
-        ) : (
-          <Card title="کارایی تحویل‌ها" actions={<Button size="sm" variant="ghost" onClick={() => void load()}>↻</Button>}>
-            <div className="scroll-x">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>تحویل</th>
-                    <th>ریچ</th>
-                    <th>ذخیره</th>
-                    <th>نرخ ذخیره</th>
-                    <th>CTR</th>
-                    <th>تماشا</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {measured.map((delivery) => (
-                    <tr key={delivery.deliveryId}>
-                      <td><span className="code">{delivery.deliveryId}</span></td>
-                      <td className="num">{fa(delivery.metrics.reach)}</td>
-                      <td className="num">{fa(delivery.metrics.saves)}</td>
-                      <td className="num" style={{ color: 'var(--ok)' }}>{fa(delivery.kpis.saveRate)}٪</td>
-                      <td className="num" style={{ color: 'var(--info)' }}>{fa(delivery.kpis.ctr)}٪</td>
-                      <td className="num">{fa(delivery.kpis.avgWatchRatio)}٪</td>
-                      <td>
-                        <Button size="sm" variant="ghost" onClick={() => openMetrics(delivery)}>ویرایش</Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )
-      )}
-
-      <Card title="همه تحویل‌ها" subtitle="برای ثبت شاخص روی هر ردیف کلیک کن">
-        {deliveries.length === 0 ? (
-          <div className="text-2xs dim">هنوز تحویلی ایجاد نشده است.</div>
-        ) : (
-          <div className="stack" style={{ gap: 8 }}>
-            {deliveries.slice(0, 12).map((delivery) => {
-              const content = contents.find((c) => c.contentId === delivery.contentId);
-              return (
-                <div key={delivery.deliveryId} className="row-between card card--tight" style={{ background: 'var(--surface-2)', padding: 10 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="text-2xs font-bold truncate">{content?.title ?? delivery.contentId}</div>
-                    <div className="row" style={{ gap: 6, marginTop: 3 }}>
-                      <span className="code">{delivery.deliveryId}</span>
-                      <span className="chip">{delivery.platform}</span>
-                    </div>
-                  </div>
-                  <Button size="sm" variant="ghost" onClick={() => openMetrics(delivery, content?.title)}>
-                    ثبت شاخص
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </Card>
 
-      <Modal open={Boolean(editing)} onClose={() => setEditing(null)} title={`ثبت شاخص — ${editing?.deliveryId ?? ''}`}>
-        <div className="grid grid-2" style={{ gap: 12 }}>
-          <Field label="ریچ (Reach)"><input className="input num" type="number" value={form.reach} onChange={(e) => setForm({ ...form, reach: Number(e.target.value) || 0 })} /></Field>
-          <Field label="ذخیره (Saves)"><input className="input num" type="number" value={form.saves} onChange={(e) => setForm({ ...form, saves: Number(e.target.value) || 0 })} /></Field>
-          <Field label="اشتراک (Shares)"><input className="input num" type="number" value={form.shares} onChange={(e) => setForm({ ...form, shares: Number(e.target.value) || 0 })} /></Field>
-          <Field label="کلیک (Clicks)"><input className="input num" type="number" value={form.clicks} onChange={(e) => setForm({ ...form, clicks: Number(e.target.value) || 0 })} /></Field>
-          <Field label="میانگین تماشا (ثانیه)"><input className="input num" type="number" value={form.avgWatchTimeSec} onChange={(e) => setForm({ ...form, avgWatchTimeSec: Number(e.target.value) || 0 })} /></Field>
-          <Field label="مدت ویدئو (ثانیه)"><input className="input num" type="number" value={form.videoDurationSec} onChange={(e) => setForm({ ...form, videoDurationSec: Number(e.target.value) || 30 })} /></Field>
-        </div>
-        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
-          <Button variant="ghost" onClick={() => setEditing(null)}>انصراف</Button>
-          <Button variant="primary" onClick={() => void saveMetrics()}>ذخیره</Button>
-        </div>
+      <Modal open={!!entry} onClose={() => setEntry(null)} title="ثبت آمار خام" width={720}>
+        {entry && (
+          <div className="stack" style={{ gap: 12 }}>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <span className="chip chip--gold">{entry.platformLabel}</span>
+              <span className="chip">{entry.formatLabel}</span>
+              <span className="code">{entry.deliveryId}</span>
+            </div>
+
+            <div className="text-2xs muted">
+              پنجرهٔ فعال: <b>{windowKey}</b> — برای هر پنجره یک ردیف جدا ذخیره می‌شود.
+            </div>
+
+            <div className="grid grid-2" style={{ gap: 10 }}>
+              {METRIC_FIELDS.map((f) => (
+                <Field key={String(f.key)} label={f.label} hint={f.hint}>
+                  <input
+                    className="input num"
+                    type="number"
+                    min={0}
+                    value={(draft[f.key] as number | null | undefined) ?? ''}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        [f.key]: e.target.value === '' ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                </Field>
+              ))}
+            </div>
+
+            {snapshots.filter((s) => s.window === windowKey && s.capturedAt).length > 0 && (
+              <div>
+                <div className="label">شاخص‌های محاسبه‌شدهٔ فعلی</div>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                  {Object.entries(snapshots.find((s) => s.window === windowKey)?.kpis ?? {})
+                    .filter(([, v]) => v != null)
+                    .map(([k, v]) => (
+                      <span key={k} className="chip chip--ok" style={{ fontSize: 10 }}>
+                        {KPI_LABEL[k] ?? k}: {fa(Number(v).toFixed(2))}٪
+                      </span>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+              <Button variant="ghost" onClick={() => setEntry(null)}>بستن</Button>
+              <Button variant="primary" onClick={() => void saveSnapshot()}>ثبت و محاسبه</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
 }
+
+const FUNNEL_LABEL: Record<string, string> = {
+  TOFU: 'آگاهی (TOFU)',
+  MOFU: 'در نظر گرفتن (MOFU)',
+  BOFU: 'تصمیم (BOFU)',
+};
+
+const KPI_LABEL: Record<string, string> = {
+  save_rate: 'نرخ ذخیره',
+  share_rate: 'نرخ اشتراک',
+  ctr: 'نرخ کلیک',
+  engagement_rate_by_reach: 'تعامل به ریچ',
+  avg_watch_ratio: 'نسبت تماشا',
+  story_reply_rate: 'پاسخ استوری',
+  web_asset_conversion: 'تبدیل ابزار وب',
+};

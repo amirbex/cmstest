@@ -386,6 +386,12 @@ const DEFAULT_PROMPTS = {
 ۳. اگر پرسشی درباره وضعیت بود: action="NONE" و requiresConfirmation=false.
 ۴. اگر کاربر خواست چیزی رندر شود: action="RENDER".`,
 
+  SUBTITLE_ENGINEER: `تو موتور رونویسی واژه‌به‌واژه فارسی هستی.
+برای هر واژه start و end به ثانیه بده، بدون هم‌پوشانی، با نیم‌فاصله صحیح.
+اگر بخشی نامفهوم بود «...» بگذار و از خودت نساز.
+جمله‌ها را در cueهای حداکثر ۵ کلمه یا ۲.۵ ثانیه گروه‌بندی کن.
+خروجی فقط JSON معتبر.`,
+
   IDEATION_STRATEGY: `تو سردبیر ارشد و استراتژیست محتوای AtoZ.FnB هستی.
 سه کانسپت کاملاً متمایز، غیرکلیشه‌ای و داده‌محور برای صنعت F&B ایران بساز.
 هر کانسپت باید یک شاخص عددی کوتاه (حداکثر ۵ کاراکتر) و یک قلاب (hook) داشته باشد.
@@ -499,14 +505,19 @@ async function getSdk() {
  * this is the single biggest reliability win over "please answer in JSON".
  * Temperature stays low: these are planning tasks, not creative writing.
  */
-async function callGemini({ model, prompt, agentId = 'system', schemaJson = null, temperature = 0.6 }) {
+async function callGemini({ model, prompt, agentId = 'system', schemaJson = null, temperature = 0.6, audio = null }) {
   const client = await getSdk();
   if (!client) throw Object.assign(new Error('کلید API تنظیم نشده است'), { code: 'NO_KEY' });
 
   const started = Date.now();
+  /* Multimodal call: text + inline audio. The SDK takes a contents array of
+     parts; inlineData is used because our extracted audio track is tiny. */
+  const contents = audio
+    ? [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: audio.mime, data: audio.base64 } }] }]
+    : prompt;
   const res = await client.models.generateContent({
     model,
-    contents: prompt,
+    contents,
     config: {
       temperature,
       maxOutputTokens: Number(process.env.ATOZ_MAX_OUTPUT_TOKENS || 8192),
@@ -531,14 +542,16 @@ async function callGemini({ model, prompt, agentId = 'system', schemaJson = null
  * The local model is a *complement*, never the primary path — so it is only
  * consulted when there is no key, or when Gemini has just failed.
  */
-async function callModel({ model, prompt, agentId = 'system', schemaJson = null, useLocal = false }) {
+async function callModel({ model, prompt, agentId = 'system', schemaJson = null, useLocal = false, temperature = 0.6, audio = null }) {
   if (useLocal) {
     if (!LOCAL_AI_URL) throw Object.assign(new Error('مدل محلی تنظیم نشده است'), { code: 'NO_LOCAL' });
+    /* a local text model cannot hear audio — the caller falls back */
+    if (audio) throw Object.assign(new Error('مدل محلی از صدا پشتیبانی نمی‌کند'), { code: 'NO_AUDIO' });
     return callLocalModel({ prompt, agentId, schemaJson });
   }
   const client = await getSdk();
   if (!client) throw Object.assign(new Error('کلید API تنظیم نشده است'), { code: 'NO_KEY' });
-  return callGemini({ model, prompt, agentId, schemaJson });
+  return callGemini({ model, prompt, agentId, schemaJson, temperature, audio });
 }
 
 /**
@@ -552,7 +565,7 @@ async function callModel({ model, prompt, agentId = 'system', schemaJson = null,
  * @template T
  * @param {import('zod').ZodType<T>} schema
  */
-export async function askJson({ schema, prompt, agentId = 'system', label = 'پاسخ مدل', temperature = 0.6 }) {
+export async function askJson({ schema, prompt, agentId = 'system', label = 'پاسخ مدل', temperature = 0.6, audio = null }) {
   const errors = [];
   const schemaJson = zodToJsonSchema(schema, { $refStrategy: 'none', target: 'jsonSchema7' });
 
@@ -571,6 +584,7 @@ export async function askJson({ schema, prompt, agentId = 'system', label = 'پ�
           schemaJson,
           useLocal,
           temperature,
+          audio,
         });
         const parsed = schema.safeParse(extractJson(text));
         if (parsed.success) {
@@ -943,6 +957,15 @@ export const AGENTS = [
     role: 'ساخت بسته‌ی کامل: صحنه، نریشن، کاروسل، سوشال',
     promptKey: 'UNIFIED_CONTENT_FACTORY',
     schema: 'FactoryResponse',
+    canAct: false,
+    model: 'chain',
+  },
+  {
+    id: 'SUBTITLE_ENGINEER',
+    label: 'مهندس زیرنویس',
+    role: 'رونویسی واژه‌به‌واژه فارسی از صدا با زمان‌بندی دقیق',
+    promptKey: 'SUBTITLE_ENGINEER',
+    schema: 'TranscriptSchema',
     canAct: false,
     model: 'chain',
   },

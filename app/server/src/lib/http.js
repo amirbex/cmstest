@@ -54,7 +54,7 @@ export class App {
   }
 
   /** Register a route. `:param` segments are captured into req.params. */
-  route(method, pattern, handler) {
+  route(method, pattern, handler, opts = {}) {
     const keys = [];
     /* Order matters: escape regex metacharacters first (a `/` is not one, so it
        survives untouched), then turn `:name` segments into capture groups.
@@ -68,21 +68,24 @@ export class App {
         return '([^/]+)';
       });
     const rx = new RegExp(`^${body}/?$`);
-    this.routes.push({ method, rx, keys, handler });
+    this.routes.push({ method, rx, keys, handler, opts });
     return this;
   }
 
   get(p, h) {
     return this.route('GET', p, h);
   }
-  post(p, h) {
-    return this.route('POST', p, h);
+  post(p, h, opts) {
+    return this.route('POST', p, h, opts);
   }
-  patch(p, h) {
-    return this.route('PATCH', p, h);
+  put(p, h, opts) {
+    return this.route('PUT', p, h, opts);
   }
-  del(p, h) {
-    return this.route('DELETE', p, h);
+  patch(p, h, opts) {
+    return this.route('PATCH', p, h, opts);
+  }
+  del(p, h, opts) {
+    return this.route('DELETE', p, h, opts);
   }
 
   /** Serve a directory under a URL prefix (with path-traversal protection). */
@@ -108,8 +111,8 @@ export class App {
     };
 
     try {
-      // static
-      for (const s of this.statics) {
+      // static — never intercept /api, or an SPA fallback would swallow a route
+      for (const s of url.pathname.startsWith('/api/') ? [] : this.statics) {
         if (url.pathname === s.prefix || url.pathname.startsWith(`${s.prefix}/`)) {
           const rel = decodeURIComponent(url.pathname.slice(s.prefix.length)).replace(/^\/+/, '');
           const target = path.resolve(s.dir, rel || 'index.html');
@@ -156,8 +159,14 @@ export class App {
         });
 
         let body = null;
+        let rawBody = null;
+        let files = [];
         if (req.method !== 'GET' && req.method !== 'DELETE') {
-          body = await readBody(req, this.maxBodyBytes);
+          const limit = r.opts.maxBodyBytes ?? this.maxBodyBytes;
+          const parsed = await readBody(req, limit);
+          body = parsed.body;
+          rawBody = parsed.raw;
+          files = parsed.files ?? [];
         }
 
         const ctx = {
@@ -167,6 +176,8 @@ export class App {
           params,
           query: Object.fromEntries(url.searchParams.entries()),
           body,
+          rawBody,
+          files,
           json: (status, payload) => send(status, payload),
           text: (status, payload) => send(status, payload),
           stream: (status, headers) => {
@@ -225,6 +236,14 @@ export class App {
   }
 }
 
+/**
+ * Binary-safe body reader.
+ *
+ * Uploads are the reason this cannot simply decode to UTF-8: a single invalid
+ * byte sequence silently mangles a video file. So the raw Buffer is always
+ * captured (`ctx.rawBody`) and only *parsed* when the content type says the
+ * payload is structured.
+ */
 function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -239,21 +258,82 @@ function readBody(req, limit) {
       chunks.push(chunk);
     });
     req.on('end', () => {
-      if (!chunks.length) return resolve(null);
-      const raw = Buffer.concat(chunks).toString('utf-8');
-      const type = req.headers['content-type'] ?? '';
+      if (!chunks.length) return resolve({ body: null, raw: null });
+      const raw = Buffer.concat(chunks);
+      const type = String(req.headers['content-type'] ?? '').toLowerCase();
+
       if (type.includes('application/json')) {
         try {
-          resolve(JSON.parse(raw));
+          resolve({ body: JSON.parse(raw.toString('utf-8')), raw });
         } catch {
           reject(bad('بدنه‌ی JSON نامعتبر است', 'INVALID_JSON'));
         }
-      } else {
-        resolve(raw);
+        return;
       }
+
+      if (type.includes('multipart/form-data')) {
+        const boundary = /boundary=("?)([^";]+)\1/.exec(type);
+        if (!boundary) return reject(bad('مرز multipart پیدا نشد', 'BAD_MULTIPART'));
+        const parts = parseMultipart(raw, boundary[2]);
+        /* first non-file field wins as `body`; files are exposed as `ctx.files` */
+        const fields = {};
+        for (const part of parts) {
+          if (part.filename) continue;
+          fields[part.name] = part.data.toString('utf-8');
+        }
+        resolve({ body: fields, raw, files: parts.filter((p) => p.filename) });
+        return;
+      }
+
+      if (type.includes('application/x-www-form-urlencoded')) {
+        const params = new URLSearchParams(raw.toString('utf-8'));
+        resolve({ body: Object.fromEntries(params.entries()), raw });
+        return;
+      }
+
+      if (type.startsWith('text/') || type.includes('xml') || type === '') {
+        resolve({ body: raw.toString('utf-8'), raw });
+        return;
+      }
+
+      /* binary payload (video, image, audio) — caller reads ctx.rawBody */
+      resolve({ body: null, raw });
     });
     req.on('error', reject);
   });
+}
+
+/**
+ * Minimal multipart/form-data parser.
+ *
+ * Deliberately small: browsers send well-formed boundaries, and we only need
+ * `name`, `filename`, `content-type` and the bytes. Splitting on the boundary
+ * Buffer is safe because the boundary is chosen by the client to not appear in
+ * the payload.
+ */
+export function parseMultipart(buffer, boundary) {
+  const delimiter = Buffer.from(`--${boundary}`);
+  const parts = [];
+  let index = buffer.indexOf(delimiter);
+  while (index !== -1) {
+    const start = index + delimiter.length;
+    /* "--" right after the delimiter marks the final boundary */
+    if (buffer.slice(start, start + 2).toString() === '--') break;
+    const next = buffer.indexOf(delimiter, start);
+    if (next === -1) break;
+    const chunk = buffer.slice(start + 2, next - 2); // trim CRLF on both sides
+    const headerEnd = chunk.indexOf('\r\n\r\n');
+    if (headerEnd !== -1) {
+      const headerText = chunk.slice(0, headerEnd).toString('utf-8');
+      const data = chunk.slice(headerEnd + 4);
+      const name = /name="([^"]*)"/.exec(headerText)?.[1] ?? '';
+      const filename = /filename="([^"]*)"/.exec(headerText)?.[1] ?? null;
+      const contentType = /content-type:\s*([^\r\n]+)/i.exec(headerText)?.[1] ?? null;
+      parts.push({ name, filename, contentType, data });
+    }
+    index = next;
+  }
+  return parts;
 }
 
 /** Validate with a zod schema and throw a readable Persian 400 on failure. */

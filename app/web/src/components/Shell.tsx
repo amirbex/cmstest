@@ -4,12 +4,12 @@ import { fa } from './ui';
 import type { RoomKey } from '../rooms';
 
 export const ROOMS: { key: RoomKey; label: string; short: string; icon: string; hint: string }[] = [
-  { key: 'command', label: 'داشبورد فرماندهی', short: 'داشبورد', icon: '🏛️', hint: 'وضعیت لحظه‌ای استودیو' },
-  { key: 'calendar', label: 'تقویم جلالی انتشار', short: 'تقویم', icon: '📅', hint: 'برنامه‌ریزی و انتشار' },
-  { key: 'plan', label: 'برنامه ۳ ماهه', short: 'برنامه', icon: '🧩', hint: 'بلوک‌ها و دروازه تایید' },
+  { key: 'command', label: 'داشبورد فرماندهی', short: 'داشبورد', icon: '🏛️', hint: 'وضعیت هفته و آمادگی تولید' },
+  { key: 'calendar', label: 'تقویم انتشار', short: 'تقویم', icon: '📅', hint: 'کلید زمان‌بندی و انتشار' },
+  { key: 'production', label: 'صف تولید', short: 'تولید', icon: '⚙️', hint: 'ایده به کانسپت زمان‌بندی‌شده' },
+  { key: 'editor', label: 'استودیو تدوین', short: 'تدوین', icon: '🎬', hint: 'بوم صحنه، تایم‌لاین، زیرنویس' },
+  { key: 'templates', label: 'کتابخانهٔ قالب‌ها', short: 'قالب', icon: '🎨', hint: 'رسپی‌های حرکت' },
   { key: 'ideation', label: 'اتاق فکر', short: 'ایده', icon: '💡', hint: 'کانسپت و ساخت بسته' },
-  { key: 'studio', label: 'استودیو تدوین', short: 'استودیو', icon: '🎬', hint: 'بوم لایه‌ای و رندر' },
-  { key: 'gallery', label: 'گالری خروجی‌ها', short: 'گالری', icon: '🎞️', hint: 'ویدئو، کاروسل، کاور' },
   { key: 'assets', label: 'مخزن دارایی', short: 'دارایی', icon: '🗄️', hint: 'فایل‌ها و صداها' },
   { key: 'insights', label: 'داده و بینش', short: 'داده', icon: '📈', hint: 'KPI و قیف' },
   { key: 'prompts', label: 'پرامپت‌های ایجنت', short: 'پرامپت', icon: '🧠', hint: 'شخصیت و لحن' },
@@ -22,9 +22,7 @@ export function Sidebar({ current, onNavigate }: { current: RoomKey; onNavigate:
   const stats = state?.stats;
 
   const badgeFor = (key: RoomKey) => {
-    if (key === 'plan' && stats?.pending) return fa(stats.pending);
-    if (key === 'gallery' && stats?.produced) return fa(stats.produced);
-    if (key === 'studio' && activeJobs.length) return fa(activeJobs.length);
+    if (key === 'editor' && activeJobs.length) return fa(activeJobs.length);
     return null;
   };
 

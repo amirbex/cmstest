@@ -1,12 +1,12 @@
 import React from 'react';
-import { CommandRoom } from './Command';
+import { DashboardRoom } from './Dashboard';
 import { CalendarRoom } from './Calendar';
-import { PlanRoom } from './Plan';
-import { IdeationRoom } from './Ideation';
-import { StudioRoom } from './Studio';
-import { GalleryRoom } from './Gallery';
+import { ProductionRoom } from './Production';
+import { EditorRoom } from './Editor';
+import { TemplatesRoom } from './Templates';
 import { AssetsRoom } from './Assets';
 import { InsightsRoom } from './Insights';
+import { IdeationRoom } from './Ideation';
 import { PromptsRoom } from './Prompts';
 import { MonitorRoom } from './Monitor';
 import { SkillsRoom } from './Skills';
@@ -14,12 +14,12 @@ import { SkillsRoom } from './Skills';
 export type RoomKey =
   | 'command'
   | 'calendar'
-  | 'plan'
-  | 'ideation'
-  | 'studio'
-  | 'gallery'
+  | 'production'
+  | 'editor'
+  | 'templates'
   | 'assets'
   | 'insights'
+  | 'ideation'
   | 'prompts'
   | 'skills'
   | 'monitor';
@@ -29,14 +29,14 @@ export interface RoomProps {
 }
 
 export const ROOM_META: Record<RoomKey, { title: string; subtitle: string }> = {
-  command: { title: 'داشبورد فرماندهی', subtitle: 'وضعیت لحظه‌ای خط تولید محتوا' },
-  calendar: { title: 'تقویم جلالی انتشار', subtitle: 'زمان‌بندی، تعویق و انتشار واقعی' },
-  plan: { title: 'برنامه ۳ ماهه و دروازه تایید', subtitle: '۲۴ بلوک، الگوها و مسیر تولید' },
-  ideation: { title: 'اتاق فکر', subtitle: 'از موضوع خام تا بسته محتوای آماده' },
-  studio: { title: 'استودیو تدوین', subtitle: 'بوم لایه‌ای، صدای فارسی و رندر آفلاین' },
-  gallery: { title: 'گالری خروجی‌ها', subtitle: 'ویدئو، کاروسل و کاور تولیدشده' },
-  assets: { title: 'مخزن دارایی', subtitle: 'فایل‌ها، فونت‌ها و نمونه‌های صوتی' },
-  insights: { title: 'داده و بینش', subtitle: 'قیف محتوا و شاخص‌های اندازه‌گیری‌شده' },
+  command: { title: 'داشبورد فرماندهی', subtitle: 'وضعیت هفته، آمادگی تولید و دادهٔ واقعی' },
+  calendar: { title: 'تقویم انتشار', subtitle: 'کلیدهای زمان‌بندی، تعویق و ثبت انتشار' },
+  production: { title: 'صف تولید', subtitle: 'از ایدهٔ پلن تا کانسپت زمان‌بندی‌شدهٔ قابل ویرایش' },
+  editor: { title: 'استودیو تدوین', subtitle: 'بوم صحنه، تایم‌لاین و زیرنویس خودکار' },
+  templates: { title: 'کتابخانهٔ قالب‌ها', subtitle: 'رسپی‌های حرکت و قالب‌های آمادهٔ رندر' },
+  assets: { title: 'مخزن دارایی', subtitle: 'بارگذاری، فشرده‌سازی و ایندکس فایل‌ها' },
+  insights: { title: 'داده و بینش', subtitle: 'آمار خام، شاخص‌های محاسبه‌شده و کیفیت انسانی' },
+  ideation: { title: 'اتاق فکر', subtitle: 'از موضوع خام تا بستهٔ محتوای آماده' },
   prompts: { title: 'پرامپت‌های ایجنت', subtitle: 'شخصیت، لحن و قواعد تولید' },
   skills: { title: 'ایجنت‌ها و مهارت‌ها', subtitle: 'نقش‌ها، مهارت‌های تزریقی و پرامپت نهایی' },
   monitor: { title: 'نظارت و لاگ', subtitle: 'صف رندر، سهمیه مدل و رویدادها' },
@@ -45,21 +45,21 @@ export const ROOM_META: Record<RoomKey, { title: string; subtitle: string }> = {
 export function RoomView({ room, onNavigate }: { room: RoomKey; onNavigate: (room: RoomKey) => void }) {
   switch (room) {
     case 'command':
-      return <CommandRoom onNavigate={onNavigate} />;
+      return <DashboardRoom onNavigate={onNavigate} />;
     case 'calendar':
       return <CalendarRoom onNavigate={onNavigate} />;
-    case 'plan':
-      return <PlanRoom onNavigate={onNavigate} />;
-    case 'ideation':
-      return <IdeationRoom onNavigate={onNavigate} />;
-    case 'studio':
-      return <StudioRoom onNavigate={onNavigate} />;
-    case 'gallery':
-      return <GalleryRoom onNavigate={onNavigate} />;
+    case 'production':
+      return <ProductionRoom onNavigate={onNavigate} />;
+    case 'editor':
+      return <EditorRoom onNavigate={onNavigate} />;
+    case 'templates':
+      return <TemplatesRoom onNavigate={onNavigate} />;
     case 'assets':
       return <AssetsRoom onNavigate={onNavigate} />;
     case 'insights':
       return <InsightsRoom onNavigate={onNavigate} />;
+    case 'ideation':
+      return <IdeationRoom onNavigate={onNavigate} />;
     case 'prompts':
       return <PromptsRoom onNavigate={onNavigate} />;
     case 'skills':
@@ -67,6 +67,6 @@ export function RoomView({ room, onNavigate }: { room: RoomKey; onNavigate: (roo
     case 'monitor':
       return <MonitorRoom onNavigate={onNavigate} />;
     default:
-      return <CommandRoom onNavigate={onNavigate} />;
+      return <DashboardRoom onNavigate={onNavigate} />;
   }
 }

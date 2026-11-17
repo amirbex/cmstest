@@ -1,9 +1,9 @@
 {
   "name": "atoz-cms",
-  "version": "6.0.0",
+  "version": "7.0.0",
   "private": true,
   "type": "module",
-  "description": "AtoZ.FnB Content Studio v6 — offline-first, code-driven content production pipeline",
+  "description": "AtoZ.FnB Content Studio v7 — plan-driven content operations: ideas → assets → scheduled publishes, with an editor, a subtitle pipeline and a motion-recipe catalogue",
   "engines": {
     "node": ">=22.5.0"
   },

@@ -16,6 +16,7 @@ storage/data/*
 storage/jobs/*
 storage/assets/*
 storage/outputs/*
+storage/media/*
 !storage/**/.gitkeep
 
 # local binaries / models for optional offline voice engines

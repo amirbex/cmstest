@@ -59,22 +59,26 @@ import { loadBrand, themeFor, chartPalette } from '../services/brand.js';
 import { walkAssets } from '../lib/fsx.js';
 import { MOTIONS, MOTION_KEYS, TRANSITIONS } from '../engine/motion.js';
 import { renderPreviewFrame } from '../engine/compose.js';
+import { registerPlanRoutes } from './plan.js';
+import { registerMediaRoutes } from './media.js';
 
 export function buildApp() {
-  const app = new App({ maxBodyBytes: 12 * 1024 * 1024 });
+  const app = new App({ maxBodyBytes: 512 * 1024 * 1024 });
 
   /* ── static ── */
   app
     .serve('/media/outputs', 'storage/outputs')
     .serve('/media/assets', 'storage/assets')
-    .serve('/media/fonts', 'app/web/public/fonts');
+    .serve('/media/fonts', 'app/web/public/fonts')
+    .serve('/media/uploads', process.env.ATOZ_MEDIA_DIR || 'storage/media')
+    .serve('/files', 'assets');
 
   /* ── health & state ── */
   app.get('/api/health', () => ({
     success: true,
     data: {
       ok: true,
-      version: '6.0.0',
+      version: '7.0.0',
       uptimeSec: Math.round(process.uptime()),
       node: process.version,
       mode: process.env.NODE_ENV ?? 'development',
@@ -478,6 +482,18 @@ export function buildApp() {
     notify(body?.level ?? 'info', String(body?.message ?? '').slice(0, 400));
     return { success: true };
   });
+
+  /* v7.0 content-ops routes (ideas, publishes, snapshots, quality, analytics) */
+  registerPlanRoutes(app);
+  /* v7.0 media pipeline (upload, compress, transcribe, subtitle burn-in) */
+  registerMediaRoutes(app);
+
+  /* Production only: serve the built SPA from the same origin as the API, so
+     `npm run build && npm start` gives a single-port install with no proxy.
+     In development Vite owns the UI and proxies /api here instead. */
+  if (fs.existsSync('app/web/dist/index.html') && process.env.NODE_ENV === 'production') {
+    app.serve('/', 'app/web/dist');
+  }
 
   return app;
 }

@@ -163,6 +163,138 @@ CREATE TABLE IF NOT EXISTS puzzle_block (
   updated_at  TEXT
 );
 
+/* ═══════════════ v7.0 — content-ops model ═══════════════ */
+
+/* Real plan ideas replace the simplified content row: one idea -> many
+   deliveries -> many assets, plus per-delivery snapshots and quality scores. */
+CREATE TABLE IF NOT EXISTS idea (
+  content_id     TEXT PRIMARY KEY,
+  batch_id       TEXT NOT NULL,
+  title          TEXT NOT NULL,
+  pillar         TEXT NOT NULL DEFAULT '',
+  thread         TEXT NOT NULL DEFAULT '',
+  section_code   TEXT NOT NULL DEFAULT 'Library',
+  personas_json  TEXT NOT NULL DEFAULT '[]',
+  status         TEXT NOT NULL DEFAULT 'idea',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_idea_batch   ON idea(batch_id);
+CREATE INDEX IF NOT EXISTS idx_idea_status  ON idea(status);
+
+/* A plan asset is a *specification*; rendered files live in the asset table. */
+CREATE TABLE IF NOT EXISTS plan_asset (
+  asset_id            TEXT PRIMARY KEY,
+  content_id          TEXT NOT NULL REFERENCES idea(content_id) ON DELETE CASCADE,
+  asset_type          TEXT NOT NULL DEFAULT '',
+  name                TEXT NOT NULL DEFAULT '',
+  storage_location    TEXT NOT NULL DEFAULT '',
+  subfile_codes_json  TEXT NOT NULL DEFAULT '[]',
+  created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plan_asset_content ON plan_asset(content_id);
+
+CREATE TABLE IF NOT EXISTS publish (
+  delivery_id       TEXT PRIMARY KEY,
+  content_id        TEXT NOT NULL REFERENCES idea(content_id) ON DELETE CASCADE,
+  batch_id          TEXT NOT NULL,
+  schedule_key      TEXT NOT NULL,
+  platform          TEXT NOT NULL,
+  format_code       TEXT NOT NULL DEFAULT 'SNG',
+  format_type       TEXT NOT NULL DEFAULT '',
+  day_of_week       TEXT NOT NULL DEFAULT '',
+  time_slot         TEXT NOT NULL DEFAULT '09:00',
+  funnel_stage      TEXT NOT NULL DEFAULT 'MOFU',
+  content_pillar    TEXT NOT NULL DEFAULT '',
+  cta_target_id     TEXT,
+  platform_post_id  TEXT,
+  publish_status    TEXT NOT NULL DEFAULT 'planned',
+  scheduled_for     TEXT,
+  asset_ids_json    TEXT NOT NULL DEFAULT '[]',
+  positioning_json  TEXT NOT NULL DEFAULT '{}',
+  visual_json       TEXT NOT NULL DEFAULT '{}',
+  content_json      TEXT NOT NULL DEFAULT '{}',
+  quality_json      TEXT NOT NULL DEFAULT '{}',
+  rollover_count    INTEGER NOT NULL DEFAULT 0,
+  published_at      TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_publish_content  ON publish(content_id);
+CREATE INDEX IF NOT EXISTS idx_publish_date     ON publish(scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_publish_status   ON publish(publish_status);
+CREATE INDEX IF NOT EXISTS idx_publish_platform ON publish(platform);
+
+/* Three fixed windows per publish: 24h, 7d, 30d. */
+CREATE TABLE IF NOT EXISTS snapshot (
+  delivery_id    TEXT NOT NULL REFERENCES publish(delivery_id) ON DELETE CASCADE,
+  window_key     TEXT NOT NULL,
+  captured_at    TEXT,
+  raw_json       TEXT NOT NULL DEFAULT '{}',
+  kpis_json      TEXT NOT NULL DEFAULT '{}',
+  source         TEXT NOT NULL DEFAULT 'manual',
+  PRIMARY KEY (delivery_id, window_key)
+);
+
+/* Non-destructive edit documents, one active doc per (contentId,target). */
+CREATE TABLE IF NOT EXISTS edit_doc (
+  content_id  TEXT NOT NULL,
+  target      TEXT NOT NULL,
+  doc_json    TEXT NOT NULL,
+  revision    INTEGER NOT NULL DEFAULT 1,
+  updated_at  TEXT NOT NULL,
+  PRIMARY KEY (content_id, target)
+);
+
+/* v7.0 edit documents: one per delivery, holding the full editable concept
+   (scenes, timings, copy) that the editor canvas renders and the renderer reads.
+   Separate from the legacy edit_doc above, which was keyed by content+target. */
+CREATE TABLE IF NOT EXISTS edit_document (
+  doc_id        TEXT PRIMARY KEY,
+  delivery_id   TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  aspect        TEXT NOT NULL,
+  duration_sec  REAL NOT NULL,
+  doc_json      TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'draft',
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_edit_document_delivery ON edit_document(delivery_id);
+
+/* Media library: everything the user uploads or the engine produces. */
+CREATE TABLE IF NOT EXISTS media (
+  media_id      TEXT PRIMARY KEY,
+  kind          TEXT NOT NULL DEFAULT 'video',
+  file          TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  original_name TEXT NOT NULL DEFAULT '',
+  mime          TEXT NOT NULL DEFAULT '',
+  bytes         INTEGER NOT NULL DEFAULT 0,
+  width         INTEGER,
+  height        INTEGER,
+  duration_sec  REAL,
+  folder        TEXT NOT NULL DEFAULT 'incoming',
+  content_id    TEXT,
+  parent_id     TEXT,
+  meta_json     TEXT NOT NULL DEFAULT '{}',
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_folder  ON media(folder);
+CREATE INDEX IF NOT EXISTS idx_media_content ON media(content_id);
+CREATE INDEX IF NOT EXISTS idx_media_parent  ON media(parent_id);
+
+/* Transcripts produced from video/audio, with word-level timing. */
+CREATE TABLE IF NOT EXISTS transcript (
+  media_id     TEXT PRIMARY KEY REFERENCES media(media_id) ON DELETE CASCADE,
+  language     TEXT NOT NULL DEFAULT 'fa',
+  duration_sec REAL NOT NULL DEFAULT 0,
+  cues_json    TEXT NOT NULL,
+  source       TEXT NOT NULL DEFAULT 'gemini',
+  created_at   TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS event_log (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   level      TEXT NOT NULL,

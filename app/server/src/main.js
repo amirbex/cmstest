@@ -1,5 +1,5 @@
 /**
- * AtoZ Content Studio v6 — server entrypoint.
+ * AtoZ Content Studio v7 — server entrypoint.
  *
  * Boot order matters: env → db → seed defaults → queue recovery → HTTP.
  * A missing API key or a missing TTS engine is a *warning*, never a crash:
@@ -47,14 +47,14 @@ async function main() {
   const app = buildApp();
   await app.listen(PORT, HOST);
 
-  notify('info', `استودیو محتوای AtoZ نسخه ۶ بالا آمد (حالت هوش مصنوعی: ${AI_MODE}).`);
+  notify('info', `استودیو محتوای AtoZ نسخه ۷ بالا آمد (حالت هوش مصنوعی: ${AI_MODE}).`);
   logEvent('INFO', 'boot', `HTTP روی http://localhost:${PORT} آماده است`, {
     db: DB_PATH,
     aiMode: AI_MODE,
     renderWorkers: worker.concurrency,
   });
 
-  console.log(`\n  ▸ AtoZ Content Studio v6`);
+  console.log(`\n  ▸ AtoZ Content Studio v7`);
   console.log(`  ▸ http://localhost:${PORT}`);
   console.log(`  ▸ AI mode: ${AI_MODE}${AI_MODE === 'local' ? '  (بدون کلید — خروجی قالب‌محور آفلاین)' : ''}`);
   console.log(`  ▸ DB: ${DB_PATH}`);
