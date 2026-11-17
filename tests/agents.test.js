@@ -147,3 +147,47 @@ test('AI mode reflects the configured provider', () => {
 test('cleanup', () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+/* ────────────────────────── model catalogue ────────────────────────── */
+
+test('no retired model is ever used as a default', () => {
+  const status = ai.aiStatus();
+  for (const model of status.chain) {
+    const meta = ai.MODELS[model];
+    assert.ok(meta, `unknown model in chain: ${model}`);
+    assert.equal(meta.live, true, `${model} is retired (${meta.retiredOn}) but still in the chain`);
+  }
+});
+
+test('the default chain starts with a live Gemini model', () => {
+  const status = ai.aiStatus();
+  assert.match(status.chain[0], /^gemini-/, 'Gemini must be the primary provider');
+  assert.equal(ai.MODELS[status.chain[0]].live, true);
+});
+
+test('retired models are recorded with a replacement, for a clear error message', () => {
+  const retired = Object.entries(ai.MODELS).filter(([, m]) => !m.live);
+  assert.ok(retired.length >= 3, 'the 2.5 family must be tracked as retired');
+  for (const [id, meta] of retired) {
+    assert.ok(meta.retiredOn, `${id} is missing retiredOn`);
+    assert.ok(meta.replacedBy, `${id} is missing replacedBy`);
+  }
+});
+
+test('Gemini is primary; the local model is only a fallback', () => {
+  const status = ai.aiStatus();
+  /* With no key configured we are in template mode — never "local is primary". */
+  assert.ok(['cloud', 'local-llm', 'local'].includes(status.mode));
+  if (status.mode === 'cloud') assert.equal(status.provider, 'gemini');
+  if (status.mode === 'local') assert.equal(status.provider, 'template');
+});
+
+test('every live model priced per direction, so cost is not guessed', () => {
+  for (const [id, meta] of Object.entries(ai.MODELS)) {
+    if (!meta.live) continue;
+    assert.equal(typeof meta.usdPer1kIn, 'number', `${id} missing input price`);
+    assert.equal(typeof meta.usdPer1kOut, 'number', `${id} missing output price`);
+    assert.ok(meta.usdPer1kOut >= meta.usdPer1kIn, `${id}: output must not be cheaper than input`);
+    assert.ok(meta.rpd > 0 && meta.rpm > 0, `${id} missing rate limits`);
+  }
+});

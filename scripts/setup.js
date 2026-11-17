@@ -50,6 +50,8 @@ for (const [id, label] of [
   ['@resvg/resvg-js', 'SVG rasteriser (resvg)'],
   ['@ffmpeg-installer/ffmpeg', 'bundled ffmpeg binary'],
   ['zod', 'schema validation'],
+  ['@google/genai', 'Gemini SDK'],
+  ['zod-to-json-schema', 'structured output schema'],
 ]) {
   try {
     const resolved = require.resolve(id, { paths: [ROOT] });
@@ -121,9 +123,28 @@ pyImport('edge_tts')
   ? ok('edge-tts', 'network voice available')
   : warn('edge-tts', 'optional — network voices are off; the app still produces silent-timed reels');
 
-const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ATOZ_AI_KEY;
-if (apiKey) ok('AI provider key', 'cloud generation enabled');
-else warn('AI provider key', 'absent — cloud agents will fall back');
+/* read .env the same way the server does, so the report matches reality */
+for (const candidate of ['.env', path.join('..', '..', '.env')]) {
+  if (fs.existsSync(candidate)) {
+    try {
+      process.loadEnvFile(candidate);
+    } catch {
+      /* reported by the server at boot */
+    }
+  }
+}
+
+const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+if (apiKey) {
+  ok('Gemini API key', `${apiKey.slice(0, 6)}…${apiKey.slice(-4)} — cloud agents primary`);
+} else {
+  warn('Gemini API key', 'absent — run `npm run setup:ai` to connect Gemini');
+}
+
+const chain = (process.env.ATOZ_MODEL_CHAIN || 'gemini-3.8-flash,gemini-3.5-flash,gemini-3.5-flash-lite').split(',');
+const retired = chain.filter((m) => /gemini-2\.[0-5]/.test(m.trim()));
+if (retired.length) bad('Retired model in ATOZ_MODEL_CHAIN', `${retired.join(', ')} — run \`npm run setup:ai\``);
+else ok('Model chain', chain.join(' → '));
 
 /* local model reachability decides between local-llm and template mode */
 const localUrl = process.env.ATOZ_LOCAL_AI_URL;

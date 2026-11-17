@@ -6,7 +6,7 @@ import { Button, Card, Empty, Kpi, Modal, fa } from '../components/ui';
 import type { RoomProps } from './index';
 
 const MODE_LABEL: Record<string, { text: string; cls: string }> = {
-  cloud: { text: 'ابر (کلید فعال)', cls: 'chip--ok' },
+  cloud: { text: 'Gemini (اصلی)', cls: 'chip--ok' },
   'local-llm': { text: 'مدل محلی', cls: 'chip--gold' },
   local: { text: 'قالب آفلاین', cls: 'chip--warn' },
 };
@@ -82,8 +82,9 @@ export function SkillsRoom(_props: RoomProps) {
         </Card>
         <Card tight>
           <Kpi
-            label="زنجیره مدل"
-            value={roster?.status.localModel ?? roster?.status.chain[0] ?? '—'}
+            label={roster?.status.provider === 'gemini' ? 'مدل اصلی' : 'مدل فعال'}
+            value={roster?.status.primary ?? '—'}
+            hint={roster?.status.chain.length ? `زنجیره: ${roster.status.chain.join(' → ')}` : undefined}
             icon="🔗"
           />
         </Card>

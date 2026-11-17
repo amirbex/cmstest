@@ -417,7 +417,12 @@ export interface AgentDef {
 
 export interface AiStatus {
   mode: 'cloud' | 'local-llm' | 'local' | string;
+  primary: string;
+  provider: 'gemini' | 'local' | 'template' | string;
   hasKey: boolean;
+  sdkReady: boolean;
+  sdkError: string | null;
+  localFallback: boolean;
   localUrl: string | null;
   localModel: string | null;
   chain: string[];

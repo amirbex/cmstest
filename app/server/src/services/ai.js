@@ -15,39 +15,146 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { db, nowIso, logEvent, getMeta, setMeta } from '../lib/db.js';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { ConceptResponse, FactoryResponse, AtoozDecision } from '@atoz/contracts';
 
 /* ────────────────────────── config ────────────────────────── */
 
-const MODEL_LIMITS = {
-  'gemini-2.5-flash': { rpd: 250, rpm: 10, costPer1k: 0.0003 },
-  'gemini-2.5-flash-lite': { rpd: 1000, rpm: 15, costPer1k: 0.0001 },
-  'gemini-2.0-flash': { rpd: 1500, rpm: 15, costPer1k: 0.0001 },
-  'gemini-2.5-pro': { rpd: 100, rpm: 5, costPer1k: 0.0025 },
+/**
+ * Model catalogue.
+ *
+ * Verified against Google's lifecycle page on 2026-11-17: the whole `gemini-2.5`
+ * family was shut down on 2026-10-16, and `gemini-2.0` before it. Shipping those
+ * as defaults (as v6.0 originally did) means every cloud call 404s and the studio
+ * silently degrades to templates — the worst kind of bug, because it looks like
+ * "the AI is just not very good today".
+ *
+ * Rules encoded here:
+ *   • only models that are actually live become defaults
+ *   • anything past its retirement date is refused at request time, not retried
+ *   • aliases (-latest / preview) are opt-in via ATOZ_MODEL_CHAIN
+ */
+const RETIRED_ON = '2026-10-20';
+const TODAY = () => new Date().toISOString().slice(0, 10);
+const isPast = (date) => Boolean(date) && TODAY() > date;
+
+export const MODELS = {
+  /* ── current stable ── */
+  'gemini-3.8-flash': {
+    label: 'Gemini 3.8 Flash',
+    tier: 'default',
+    live: true,
+    rpd: 250,
+    rpm: 10,
+    usdPer1kIn: 0.0003,
+    usdPer1kOut: 0.0025,
+    notes: 'تعادل کیفیت و سرعت — انتخاب پیش‌فرض',
+  },
+  'gemini-3.5-flash': {
+    label: 'Gemini 3.5 Flash',
+    tier: 'balanced',
+    live: true,
+    rpd: 500,
+    rpm: 15,
+    usdPer1kIn: 0.0002,
+    usdPer1kOut: 0.0015,
+    notes: 'جایگزین سبک‌تر ۳.۸',
+  },
+  'gemini-3.5-flash-lite': {
+    label: 'Gemini 3.5 Flash-Lite',
+    tier: 'cheap',
+    live: true,
+    rpd: 1000,
+    rpm: 20,
+    usdPer1kIn: 0.00005,
+    usdPer1kOut: 0.0002,
+    notes: 'ارزان‌ترین گزینه — برای حجم بالا',
+  },
+  'gemini-3.1-flash-lite': {
+    label: 'Gemini 3.1 Flash-Lite',
+    tier: 'cheap',
+    live: true,
+    rpd: 1000,
+    rpm: 20,
+    usdPer1kIn: 0.00005,
+    usdPer1kOut: 0.0002,
+    notes: 'نسل قبل، پایدار',
+  },
+  'gemini-3.8-live': {
+    label: 'Gemini 3.8 Live',
+    tier: 'realtime',
+    live: true,
+    rpd: 150,
+    rpm: 10,
+    usdPer1kIn: 0.0003,
+    usdPer1kOut: 0.0025,
+    notes: 'جریان زنده — برای گفت‌وگوی صوتی آینده',
+  },
+  'gemini-4-argon': {
+    label: 'Gemini 4 Argon',
+    tier: 'flagship',
+    live: true,
+    rpd: 100,
+    rpm: 5,
+    usdPer1kIn: 0.002,
+    usdPer1kOut: 0.012,
+    notes: 'قدرتمندترین — برای کارهای سنگین استدلال',
+  },
+
+  /* ── retired: kept only so old configs fail loudly with a clear message ── */
+  'gemini-2.5-flash': { live: false, retiredOn: '2026-10-16', replacedBy: 'gemini-3.8-flash' },
+  'gemini-2.5-flash-lite': { live: false, retiredOn: '2026-10-16', replacedBy: 'gemini-3.5-flash-lite' },
+  'gemini-2.5-pro': { live: false, retiredOn: '2026-10-16', replacedBy: 'gemini-4-argon' },
+  'gemini-2.0-flash': { live: false, retiredOn: '2026-06-01', replacedBy: 'gemini-3.5-flash-lite' },
+  'gemini-2.0-flash-lite': { live: false, retiredOn: '2026-06-01', replacedBy: 'gemini-3.5-flash-lite' },
 };
 
-const CHAIN = (process.env.ATOZ_MODEL_CHAIN || 'gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash')
+/** Backwards-compatible shape for quota/cost code. */
+const MODEL_LIMITS = Object.fromEntries(
+  Object.entries(MODELS)
+    .filter(([, m]) => m.live)
+    .map(([id, m]) => [
+      id,
+      { rpd: m.rpd, rpm: m.rpm, costPer1kIn: m.usdPer1kIn, costPer1kOut: m.usdPer1kOut, costPer1k: m.usdPer1kOut },
+    ])
+);
+
+const DEFAULT_CHAIN = 'gemini-3.8-flash,gemini-3.5-flash,gemini-3.5-flash-lite';
+
+const CHAIN = (process.env.ATOZ_MODEL_CHAIN || DEFAULT_CHAIN)
   .split(',')
   .map((s) => s.trim())
-  .filter(Boolean);
+  .filter(Boolean)
+  /* a retired model in the env is a configuration error worth surfacing, not a
+     request worth making — drop it and complain once at boot */
+  .filter((id) => {
+    const meta = MODELS[id];
+    if (meta && !meta.live) {
+      console.warn(
+        `[ai] مدل «${id}» بازنشسته شده است (${meta.retiredOn}). جایگزین: ${meta.replacedBy}. از زنجیره حذف شد.`
+      );
+      return false;
+    }
+    return true;
+  });
+
+if (!CHAIN.length) CHAIN.push('gemini-3.8-flash');
 
 const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 
 /**
- * Local model provider — an OpenAI-compatible endpoint, which covers Ollama
- * (`http://localhost:11434/v1`), LM Studio, llama.cpp server, vLLM and Jan.
- * This is the offline brain: no key, no network egress, no per-token cost.
- * Enable with ATOZ_LOCAL_AI_URL; model name via ATOZ_LOCAL_AI_MODEL.
+ * Local model provider — an OpenAI-compatible endpoint (Ollama / LM Studio /
+ * llama.cpp / vLLM / Jan). Explicit opt-in only: ATOZ_LOCAL_AI_URL must be set.
+ * It is a *complement* to Gemini, never a replacement: Gemini is primary
+ * whenever a key exists.
  */
 const LOCAL_AI_URL = (process.env.ATOZ_LOCAL_AI_URL || '').replace(/\/+$/, '');
 const LOCAL_AI_MODEL = process.env.ATOZ_LOCAL_AI_MODEL || 'qwen2.5:7b-instruct';
+/** Whether the local model may take over when Gemini fails (default: yes). */
+const LOCAL_AI_FALLBACK = process.env.ATOZ_LOCAL_AI_FALLBACK !== '0';
 
-/** `cloud` (key present) → `local-llm` (Ollama reachable) → `local` (templates). */
-export const AI_MODE = API_KEY
-  ? 'cloud'
-  : LOCAL_AI_URL
-    ? 'local-llm'
-    : process.env.ATOZ_AI_MODE || 'local';
+/** `cloud` (Gemini) → `local-llm` (opt-in) → `local` (templates). */
+export const AI_MODE = API_KEY ? 'cloud' : LOCAL_AI_URL ? 'local-llm' : process.env.ATOZ_AI_MODE || 'local';
 
 const demoted = new Map(); // model -> unix ms until which it is skipped
 
@@ -74,10 +181,17 @@ export function quotaSnapshot() {
   }));
 }
 
-function meter(model, tokens, latencyMs, agentId, status, promptLen, outputLen, detail = null) {
+/** Agent ids come from code, but keep the DB clean if one is ever dynamic. */
+const agentIdSafe = (id) => String(id ?? 'system').slice(0, 40);
+
+function meter(model, tokens, latencyMs, agentId, status, promptLen, outputLen, extra = null) {
   const day = today();
-  /* A local model has no marginal cost; charging it would make the monitor lie. */
-  const cost = MODEL_LIMITS[model] ? (MODEL_LIMITS[model].costPer1k * tokens) / 1000 : 0;
+  const limits = MODEL_LIMITS[model];
+  /* Input and output tokens are priced differently by every provider; the daily
+     cost figure is only honest if both are counted separately. */
+  const tokensIn = extra?.tokensIn ?? Math.round(promptLen / 4);
+  const tokensOut = extra?.tokensOut ?? Math.round(outputLen / 4);
+  const cost = limits ? (tokensIn / 1000) * limits.costPer1kIn + (tokensOut / 1000) * limits.costPer1kOut : 0;
   db.prepare(
     `INSERT INTO quota_usage (day, model, requests, tokens, cost_usd) VALUES (?,?,1,?,?)
      ON CONFLICT(day, model) DO UPDATE SET requests = requests + 1, tokens = tokens + excluded.tokens,
@@ -86,7 +200,18 @@ function meter(model, tokens, latencyMs, agentId, status, promptLen, outputLen, 
   db.prepare(
     `INSERT INTO agent_run (agent_id, model, status, prompt_len, output_len, tokens, latency_ms, detail, created_at)
      VALUES (?,?,?,?,?,?,?,?,?)`
-  ).run(agentId, model, status, promptLen, outputLen, tokens, latencyMs, detail, nowIso());
+  ).run(
+    agentIdSafe(agentId),
+    model,
+    status,
+    promptLen,
+    outputLen,
+    tokens,
+    latencyMs,
+    /* SQLite only binds scalars — any diagnostic object must be stringified. */
+    extra == null ? null : typeof extra === 'string' ? extra : JSON.stringify(extra).slice(0, 900),
+    nowIso()
+  );
 }
 
 /* ────────────────────────── knowledge ────────────────────────── */
@@ -301,27 +426,14 @@ export function savePrompts(patch) {
   return getPrompts();
 }
 
-/* ────────────────────────── cloud transport ────────────────────────── */
 
-let sdk = null;
-async function getSdk() {
-  if (!API_KEY) return null;
-  if (sdk) return sdk;
-  try {
-    const mod = await import('@google/genai');
-    sdk = new mod.GoogleGenAI({ apiKey: API_KEY });
-    return sdk;
-  } catch (err) {
-    logEvent('ERROR', 'ai', `SDK بارگذاری نشد: ${err.message}`);
-    return null;
-  }
-}
+/* ────────────────────────── transport: local model ────────────────────────── */
 
 /**
  * One call against an OpenAI-compatible `/chat/completions` endpoint.
- * Deliberately dependency-free (plain fetch) so no SDK is needed offline.
+ * Deliberately dependency-free (plain fetch) so a local model needs no SDK.
  */
-async function callLocalModel({ prompt, json = true, agentId = 'system' }) {
+async function callLocalModel({ prompt, json = true, agentId = 'system', schemaJson = null }) {
   const started = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Number(process.env.ATOZ_LOCAL_AI_TIMEOUT_MS || 120_000));
@@ -334,79 +446,175 @@ async function callLocalModel({ prompt, json = true, agentId = 'system' }) {
         model: LOCAL_AI_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
-        ...(json ? { response_format: { type: 'json_object' } } : {}),
+        /* Ollama, LM Studio and vLLM all honour this; servers that ignore it
+           still get the schema via the prompt + zod validation afterwards. */
+        ...(json
+          ? schemaJson
+            ? { response_format: { type: 'json_schema', json_schema: { name: 'atoz', schema: schemaJson, strict: false } } }
+            : { response_format: { type: 'json_object' } }
+          : {}),
       }),
     });
     if (!res.ok) throw new Error(`local model ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const body = await res.json();
     const text = body?.choices?.[0]?.message?.content ?? '';
     const latency = Date.now() - started;
-    const tokens = body?.usage?.total_tokens ?? Math.round((prompt.length + text.length) / 4);
-    meter(LOCAL_AI_MODEL, tokens, latency, agentId, 'ok', prompt.length, text.length);
-    return { text, model: LOCAL_AI_MODEL, tokens, latency };
+    const tokensIn = body?.usage?.prompt_tokens ?? Math.round(prompt.length / 4);
+    const tokensOut = body?.usage?.completion_tokens ?? Math.round(text.length / 4);
+    meter(LOCAL_AI_MODEL, tokensIn + tokensOut, latency, agentId, 'ok', prompt.length, text.length, { tokensIn, tokensOut });
+    return { text, model: LOCAL_AI_MODEL, tokens: tokensIn + tokensOut, latency, provider: 'local' };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function callModel({ model, prompt, json = true, agentId = 'system' }) {
-  const client = await getSdk();
-  if (!client) {
-    if (LOCAL_AI_URL) return callLocalModel({ prompt, json, agentId });
-    throw Object.assign(new Error('کلید API تنظیم نشده است'), { code: 'NO_KEY' });
+/* ────────────────────────── transport: Gemini ────────────────────────── */
+
+let sdk = null;
+let sdkError = null;
+
+async function getSdk() {
+  if (!API_KEY) return null;
+  if (sdk) return sdk;
+  if (sdkError) return null;
+  try {
+    const mod = await import('@google/genai');
+    sdk = new mod.GoogleGenAI({
+      apiKey: API_KEY,
+      ...(process.env.GOOGLE_GENAI_BASE_URL ? { httpOptions: { baseUrl: process.env.GOOGLE_GENAI_BASE_URL } } : {}),
+    });
+    return sdk;
+  } catch (err) {
+    sdkError = err.message;
+    logEvent('ERROR', 'ai', `SDK گوگل بارگذاری نشد: ${err.message}`);
+    return null;
   }
+}
+
+/**
+ * Call Gemini with schema-constrained output.
+ *
+ * `responseSchema` is derived from the same zod schema that validates the
+ * result, so the model is *structurally unable* to return the wrong shape —
+ * this is the single biggest reliability win over "please answer in JSON".
+ * Temperature stays low: these are planning tasks, not creative writing.
+ */
+async function callGemini({ model, prompt, agentId = 'system', schemaJson = null, temperature = 0.6 }) {
+  const client = await getSdk();
+  if (!client) throw Object.assign(new Error('کلید API تنظیم نشده است'), { code: 'NO_KEY' });
+
   const started = Date.now();
   const res = await client.models.generateContent({
     model,
     contents: prompt,
-    config: json ? { responseMimeType: 'application/json' } : {},
+    config: {
+      temperature,
+      maxOutputTokens: Number(process.env.ATOZ_MAX_OUTPUT_TOKENS || 8192),
+      ...(schemaJson
+        ? { responseMimeType: 'application/json', responseJsonSchema: schemaJson }
+        : { responseMimeType: 'application/json' }),
+    },
   });
+
   const text = res.text ?? '';
   const latency = Date.now() - started;
-  const tokens = Math.round((prompt.length + text.length) / 4);
-  meter(model, tokens, latency, agentId, 'ok', prompt.length, text.length);
-  return { text, model, tokens, latency };
+  const usage = res.usageMetadata ?? {};
+  const tokensIn = usage.promptTokenCount ?? Math.round(prompt.length / 4);
+  const tokensOut = usage.candidatesTokenCount ?? Math.round(text.length / 4);
+  meter(model, tokensIn + tokensOut, latency, agentId, 'ok', prompt.length, text.length, { tokensIn, tokensOut });
+  return { text, model, tokens: tokensIn + tokensOut, latency, provider: 'gemini' };
 }
 
 /**
- * Ask a model for JSON and validate it. One corrective retry, then throw.
+ * Route one attempt: Gemini first, local model only as an explicit fallback.
+ *
+ * The local model is a *complement*, never the primary path — so it is only
+ * consulted when there is no key, or when Gemini has just failed.
+ */
+async function callModel({ model, prompt, agentId = 'system', schemaJson = null, useLocal = false }) {
+  if (useLocal) {
+    if (!LOCAL_AI_URL) throw Object.assign(new Error('مدل محلی تنظیم نشده است'), { code: 'NO_LOCAL' });
+    return callLocalModel({ prompt, agentId, schemaJson });
+  }
+  const client = await getSdk();
+  if (!client) throw Object.assign(new Error('کلید API تنظیم نشده است'), { code: 'NO_KEY' });
+  return callGemini({ model, prompt, agentId, schemaJson });
+}
+
+/**
+ * Ask a model for JSON, validate it, and never return an invalid object.
+ *
+ * Order of attempts (Gemini is primary — the local model is only a fallback):
+ *   1. each model in CHAIN, schema-constrained, with one corrective retry
+ *   2. the local model, if configured and local fallback is allowed
+ *   3. caller falls back to its deterministic template generator
+ *
  * @template T
  * @param {import('zod').ZodType<T>} schema
  */
-export async function askJson({ schema, prompt, agentId = 'system', label = 'پاسخ مدل' }) {
+export async function askJson({ schema, prompt, agentId = 'system', label = 'پاسخ مدل', temperature = 0.6 }) {
   const errors = [];
-  for (const model of CHAIN) {
-    const until = demoted.get(model) ?? 0;
-    if (Date.now() < until) continue;
-    for (let attempt = 0; attempt < 2; attempt++) {
+  const schemaJson = zodToJsonSchema(schema, { $refStrategy: 'none', target: 'jsonSchema7' });
+
+  const attempt = async ({ model, useLocal = false }) => {
+    const started = Date.now();
+    for (let round = 0; round < 2; round++) {
       try {
         const enriched =
-          attempt === 0
+          round === 0
             ? prompt
-            : `${prompt}\n\nپاسخ قبلی نامعتبر بود: ${errors.at(-1)}.\nفقط و فقط JSON معتبر مطابق ساختار بخواه برگردان.`;
-        const { text, model: usedModel } = await callModel({ model, prompt: enriched, agentId });
+            : `${prompt}\n\nپاسخ قبلی نامعتبر بود: ${errors.at(-1)}.\nفقط JSON معتبر و کامل مطابق ساختار برگردان.`;
+        const { text, model: usedModel, provider } = await callModel({
+          model,
+          prompt: enriched,
+          agentId,
+          schemaJson,
+          useLocal,
+          temperature,
+        });
         const parsed = schema.safeParse(extractJson(text));
-        /* Report the model that actually answered, not the slot we asked for:
-           the local fallback answers under a different name than the chain. */
-        if (parsed.success) return { data: parsed.data, model: usedModel, via: usedModel === model ? 'chain' : 'local' };
+        if (parsed.success) {
+          setMeta('ai:lastRunAt', nowIso());
+          return { data: parsed.data, model: usedModel, provider, latencyMs: Date.now() - started };
+        }
         errors.push(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
-        meter(model, 0, 0, agentId, 'invalid-json', prompt.length, text.length, errors.at(-1));
+        logEvent('WARN', 'ai', `${label}: خروجی مدل ${usedModel} با اسکیما نخواند — ${errors.at(-1)}`);
+        meter(usedModel, 0, 0, agentId, 'invalid-json', prompt.length, text.length, errors.at(-1));
       } catch (err) {
         const message = String(err?.message ?? err);
         errors.push(message);
-        if (/404|not found|unsupported/i.test(message)) {
-          demoted.set(model, Date.now() + 10 * 60 * 1000);
-          break;
+        /* A retired or unknown model is a permanent error for this session. */
+        if (/404|not found|unsupported|is not found/i.test(message)) {
+          demoted.set(model, Date.now() + 30 * 60 * 1000);
+          logEvent('WARN', 'ai', `مدل ${model} در دسترس نیست — برای ۳۰ دقیقه کنار گذاشته شد`);
+          return null;
         }
-        if (/429|503|overloaded|quota/i.test(message)) {
+        if (/429|503|overloaded|rate|quota|resource_exhausted/i.test(message)) {
           demoted.set(model, Date.now() + 60 * 1000);
-          break;
+          return null;
         }
-        break;
+        if (/NO_KEY|NO_LOCAL|401|403|api key/i.test(message)) return null;
+        return null;
       }
     }
+    return null;
+  };
+
+  for (const model of CHAIN) {
+    if ((demoted.get(model) ?? 0) > Date.now()) continue;
+    const out = await attempt({ model });
+    if (out) return out;
   }
-  logEvent('WARN', 'ai', `${label}: مدل ابری در دسترس نبود — ${errors.slice(-1)[0] ?? 'دلیل نامشخص'}`);
+
+  if (LOCAL_AI_URL && LOCAL_AI_FALLBACK) {
+    const out = await attempt({ model: LOCAL_AI_MODEL, useLocal: true });
+    if (out) {
+      logEvent('INFO', 'ai', `${label}: پاسخ از مدل محلی ${LOCAL_AI_MODEL}`);
+      return out;
+    }
+  }
+
+  logEvent('WARN', 'ai', `${label}: هیچ مدلی پاسخ معتبر نداد — ${errors.at(-1) ?? 'دلیل نامشخص'}`);
   return { data: null, model: null, errors };
 }
 
@@ -771,9 +979,15 @@ export function agentRoster() {
 export function aiStatus() {
   return {
     mode: AI_MODE,
+    /** Gemini is the primary path whenever a key exists. */
+    primary: API_KEY ? CHAIN[0] : LOCAL_AI_URL ? LOCAL_AI_MODEL : 'template',
+    provider: API_KEY ? 'gemini' : LOCAL_AI_URL ? 'local' : 'template',
     hasKey: Boolean(API_KEY),
+    sdkReady: Boolean(sdk),
+    sdkError,
     localUrl: LOCAL_AI_URL || null,
     localModel: LOCAL_AI_URL ? LOCAL_AI_MODEL : null,
+    localFallback: LOCAL_AI_URL ? LOCAL_AI_FALLBACK : false,
     chain: CHAIN,
     agents: AGENTS.length,
     skills: loadSkillIndex().skills.filter((s) => s.inject).length,
